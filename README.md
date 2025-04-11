@@ -51,9 +51,14 @@ The following code describes the sequence processing steps used to analyze **v4*
   * sites are listed in order of west to east.
   * CR4 is the highest elevation site.
 
-*Soil Data - Standard Analytical Chem*
-*Climate and Weather Data from DAYMET*
-*Tree Phenotype Data from LICOR6000*
+*Soil Data* 
+Standard Analytical Chemistry Methods
+
+*Climate and Weather Data*
+Pulled from DAYMET 
+
+*Tree Phenotype Data*
+Collected with LICOR6000
 
 Kathryn Bazany
 Oak Ridge National Lab
