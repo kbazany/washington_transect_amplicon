@@ -14,5 +14,46 @@ This will contain code for...
     - SparCC co-occurence
     - Network analysis from gephi network results
 
+
+# **Project Summary** 
+
+The following code describes the sequence processing steps used to analyze **v4** data generated for the **washington elevation gradient** project. Data comes from DNA extracted from soils and surface sterilized roots. Samples were collected from Washington transect in **late summer 2023**. 
+
+**Key**
+
+**Plant Compartment**
+
+1. **Rhizosphere Soil** == rhizo
+2. **Root Endosphere** == root
+
+**Amplicon**
+
+1. **Bacteria** == o16S
+2. **Fungi** == oITS
+
+**Site**
+
+1. CR1
+2. CR1.5
+3. CR2
+4. CR3
+5. CR4
+6. TR4
+7. TR3.5
+8. TR3
+9. TR2.5
+10. TR2
+11. TR1
+  * .5 sites were added after the initial site selection and have less soil sampling data. They were excluded from some analyses related to soil chemistry. 
+  * .5 sites have complete amplicon sequencing data.
+  * CR refers to Cowlitz River sites on the western slopes of the Cascades.
+  * TR refers to the Tieton River sites on the eastern slopes of the Cascades.
+  * sites are listed in order of west to east.
+  * CR4 is the highest elevation site.
+
+*Soil Data - Standard Analytical Chem*
+*Climate and Weather Data from DAYMET*
+*Tree Phenotype Data from LICOR6000*
+
 Kathryn Bazany
 Oak Ridge National Lab
