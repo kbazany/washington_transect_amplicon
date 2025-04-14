@@ -1,0 +1,106 @@
+---
+title: "generate_asv_and_otu_tables_16S"
+output: html_document
+date: "2025-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Notes
+
+In this code we are...
+1) combining sequencing analysis across multiple sequencing runs
+2) removing chimmeras
+3) clustering asv into otu
+4) aligning asv and otu tables to SILVA taxonomy
+5) producing finished asv and otu tables with SILVA taxonomy information
+
+# Packages
+
+### Install Packages
+
+install.packages("BiocManager")
+install.packages("Biostrings")
+install.packages("ShortRead")
+install.packages("reticulate")
+install.packages("tidyverse")
+BiocManager::install("dada2")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("dada2", version = "3.20")
+install.packages("devtools")
+library("devtools")
+devtools::install_github("benjjneb/dada2", ref="v1.16") # change the ref argument to get other versions
+
+### Load Packages
+
+```{r}
+library(dada2)
+library(Biostrings)
+library(ShortRead)
+library(reticulate)
+library(tidyverse)
+library(ape)
+library(DECIPHER)
+```
+
+# Read sequencing run tables
+
+```{r}
+# check file names and paths
+########
+# read in soil_rhizo data
+soil_rhizo_seqtab <- read.table("soil_rhizo_seqtab_16S_asv.txt", header = TRUE, 
+                                sep = '\t', na.strings = ".") #long
+
+# read in root data
+root_seqtab <- read.table("root_seqtab_16S_asv.txt", header = TRUE, 
+                          sep = '\t', na.strings = ".") #long
+
+# save as matrix
+soil_rhizo_seqtab_m <- as.matrix(soil_rhizo_seqtab)
+root_seqtab_m <- as.matrix(root_seqtab)
+```
+
+# Combine tables
+
+```{r}
+merged_seqtab <- mergeSequenceTables(soil_rhizo_seqtab_m, root_seqtab_m)
+
+# check dimensions of original and combined table (should have added rows and combined some columns)
+dim(soil_rhizo_seqtab_m)
+dim(root_seqtab_m)
+dim(merged_seqtab)
+
+# writing to the data folder
+####### 
+# change file name
+write.table(merged_seqtab, "merged_seqtab_16S_asv.txt", sep = "\t")
+```
+
+# Remove chimeras
+
+```{r}
+# Remove chimeras from the merged ASV table:
+seqtab_nochim <- removeBimeraDenovo(merged_seqtab, 
+                                         method = "consensus",  
+                                         multithread = TRUE, 
+                                         verbose = TRUE)
+
+# Number of ASVs in the table:
+ncol(seqtab_nochim)
+# Number of samples in the table:
+nrow(seqtab_nochim)
+
+# Number of sequences
+sum(merged_seqtab)
+# Number of sequences
+sum(seqtab_nochim)
+
+# write nochim seqtab
+######
+# change file name
+write.table(seqtab_nochim, "nochim_merged_seqtab_16S_asv.txt", sep = "\t")
+```
