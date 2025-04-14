@@ -1,0 +1,340 @@
+---
+title: "sequence_analysis"
+output: html_document
+date: "2025-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Packages
+
+### Install Packages
+
+```{r}
+install.packages("BiocManager")
+install.packages("Biostrings")
+install.packages("ShortRead")
+install.packages("reticulate")
+install.packages("tidyverse")
+BiocManager::install("dada2")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("dada2", version = "3.20")
+install.packages("devtools")
+library("devtools")
+devtools::install_github("benjjneb/dada2", ref="v1.16") # change the ref argument to get other versions
+```
+
+### Load Packages
+
+```{r}
+library(dada2)
+library(Biostrings)
+library(ShortRead)
+library(reticulate)
+library(tidyverse)
+```
+
+
+# **Create Functions** 
+Functions Created by Aaron Onufrak.
+
+# Trimming Primers
+
+Removing primers using cutadapt. 
+
+## Cutadapt Flags and system connection
+
+Creating a function to generate primer flags for cutadapt. The function takes the following arguments:
+
+**amplicon**: The function comes pre-loaded with the most common primer sets used in the lab. This includes *its2_cregger* and *v4_cregger*. The default is *NULL* on the off-chance that another primer set is used. 
+
+**primer_fwd_list**: If amplicon is NULL then this is a list of user specified forward primer(s).
+
+**primer_rev_list**: If amplicon is NULL then this is a list of user specified reverse primer(s). 
+
+```{r}
+# Creating the primer_strings function (if there are custom primers)
+primer_strings<-function(amplicon=v4_cregger, # choose preset amplicon or write NULL
+                         primer_fwd_list=NULL,primer_rev_list=NULL){ # fill in custom sequence or keep as NULL
+  if(is.null(amplicon)==FALSE && !amplicon=="its2_cregger" && !amplicon=="v4_cregger"){
+    stop("amplicon should be its2_cregger or v4_cregger. If using non-cregger lab primers leave the amplicon argument blank and specify primers in the primer_fwd_list and primer_rev_list")
+  }
+  cutadapt_primer_flags<-list()
+  if(is.null(amplicon)==FALSE && amplicon=="its2_cregger"){  
+  its3_forward<-c("CATCGATGAAGAACGCAG","CAACGATGAAGAACGCAG","CACCGATGAAGAACGCAG","CATCGATGAAGAACGTAG","CATCGATGAAGAACGTGG","CATCGATGAAGAACGCTG")
+    its4_reverse<-c("TCCTSCGCTTATTGATATGC","TCCTCGCCTTATTGATATGC")
+    its3_forward_rc<-lapply(its3_forward,dada2::rc)
+    its4_reverse_rc<-lapply(its4_reverse,dada2::rc)
+    for (i in 1:length(its3_forward)){
+      for(x in 1:length(its4_reverse_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-a"," ", "^",its3_forward[i],"...",its4_reverse_rc[x], sep=''))
+      }
+    }
+   for (i in 1:length(its4_reverse)){
+      for(x in 1:length(its3_forward_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-A"," ", "^",its4_reverse[i],"...",its3_forward_rc[x], sep=''))
+      }
+    }    
+  }else if(is.null(amplicon)==FALSE && amplicon=="v4_cregger"){
+    v4_forward<-c("GTGCCAGCMGCCGCGGTAA","GTGCCAGCMGCWGCGGTAA","GTGCCAGCMGCCGCGGTCA","GTGKCAGCMGCCGCGGTAA")
+    v4_reverse<-c("GGACTACHVGGGTWTCTAAT")
+    v4_forward_rc<-lapply(v4_forward,dada2::rc)
+    v4_reverse_rc<-lapply(v4_reverse,dada2::rc)
+    for (i in 1:length(v4_forward)){
+      for(x in 1:length(v4_reverse_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-a"," ", "^",v4_forward[i],"...",v4_reverse_rc[x], sep=''))
+      }
+    }
+   for (i in 1:length(v4_reverse)){
+      for(x in 1:length(v4_forward_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-A"," ", "^",v4_reverse[i],"...",v4_forward_rc[x], sep=''))
+      }
+    } 
+  }else if(is.null(amplicon)==TRUE){
+    primer_forward<-primer_fwd_list
+    primer_reverse<-primer_rev_list
+    primer_forward_rc<-lapply(primer_forward,dada2::rc)
+    primer_reverse_rc<-lapply(primer_reverse,dada2::rc)
+    for (i in 1:length(primer_forward)){
+      for(x in 1:length(primer_reverse_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-a"," ", "^",primer_forward[i],"...",primer_reverse_rc[x], sep=''))
+      }
+    }
+   for (i in 1:length(primer_reverse)){
+      for(x in 1:length(primer_forward_rc)){
+    cutadapt_primer_flags<-append(cutadapt_primer_flags,paste("-A"," ", "^",primer_reverse[i],"...",primer_forward_rc[x], sep=''))
+      }
+    } 
+  }
+    return(cutadapt_primer_flags)
+}
+
+# Specifies the conda environment to use for cutadapt (update to conda environment location) #reticulate
+use_condaenv("/Users/8qq/miniconda3/envs/cutadapt")
+
+# Uses the system2 function to pass commands to the shell to run cutadapt from R. Checking to make sure R can find Cutadapt. 
+system2("conda", args = c("run", "-n", "cutadapt", "cutadapt", "--version"))
+```
+
+# Initial Sequencing Check
+
+```{r}
+# make an object with a pathway to the sub-directory of the raw F and R sequences
+##########
+dir <- "/Users/8qq/washington_transect/16S_raw_sequences"
+
+# Listing the files present in the sequence directory
+list.files(dir)
+
+# Creating objects for the forward and reverse reads
+f_dir <- sort(list.files(dir, pattern = "R1_001", 
+                               full.names = TRUE))
+r_dir <- sort(list.files(dir, pattern = "R2_001", 
+                               full.names = TRUE))
+
+# Checking number of forward and reverse files. Should be an equal number of forward and reverse files.
+length(f_dir) #34
+length(r_dir) #34
+
+# Creating an object  that strips away the pathway information leaving behind only the filename.
+filebasename_dir <- basename(f_dir)
+
+samplenames_dir <- filebasename_dir %>%
+  str_replace("_L001_R1_001.fastq","") %>%
+  str_replace("-5-", ".5_") %>%
+  str_replace_all("-", "_")
+
+unique(samplenames_dir)
+```
+
+
+# Initial Quality Assessment
+
+Assessing quality of sequences using a qc plot.
+
+```{r}
+# Generating quality plots
+f_dir_qual_plot <- plotQualityProfile(f_dir, aggregate = TRUE)
+f_dir_qual_plot
+r_dir_qual_plot <- plotQualityProfile(r_dir, aggregate = TRUE)
+r_dir_qual_plot
+```
+
+# Initial Quality Filtering
+
+Removing reads with ambiguous bases prior to using cutadapt to remove primers. 
+
+```{r}
+# Creating two path objects that will store the paths for the filtered forward and reverse reads. 
+f_dir_filtN <- file.path(dir, "filtN", basename(f_dir))
+r_dir_filtN <- file.path(dir, "filtN", basename(r_dir))
+
+# Filtering forward and reverse reads using the filterAndTrim function. Specifying maxN = 0 will indicate that sequences with at least 1 ambiguous base will be removed from the dataset. 
+filterAndTrim(f_dir, f_dir_filtN, r_dir, 
+              r_dir_filtN, maxN = 0, multithread = TRUE) #long
+
+# Creates quality profiles for the pre-filtered forward and reverse reads.
+f_dir_filtN_qual_plot <- plotQualityProfile(f_dir_filtN, 
+                                                  aggregate = TRUE) #long
+f_dir_filtN_qual_plot
+r_dir_filtN_qual_plot <- plotQualityProfile(r_dir_filtN,
+                                                  aggregate = TRUE) #long
+r_dir_filtN_qual_plot
+```
+
+## Primer Trimming with Cutadapt
+
+```{r}
+# Specifying primer strings
+v4_primer_strings <- primer_strings(amplicon = "v4_cregger")
+
+# Creating a directory to store the forward and reverse reads after they have been trimmed. 
+path_cut <- file.path(dir, "cutadapt")
+if(!dir.exists(path_cut)) dir.create(path_cut)
+
+f_dir_cut <- file.path(path_cut, basename(f_dir))
+r_dir_cut <- file.path(path_cut, basename(r_dir))
+
+# Using cutadapt to remove the primers from each read. Removing any read that does not have the forward primer or the reverse primer in the correct orientation.
+
+for (i in seq_along(f_dir)){
+  system2("conda", args = c("run -n cutadapt cutadapt",
+                          v4_primer_strings,
+                          "--discard-untrimmed", 
+                          "--minimum-length 10",
+                          "--report=minimal",
+                          "-o", f_dir_cut[i], 
+                          "-p", r_dir_cut[i],
+                  f_dir_filtN[i],
+                  r_dir_filtN[i]))
+}
+
+```
+
+# Filtering the cut Sequences based on quality
+
+```{r}
+# Creating new pathways for the quality filtered forward and reverse reads. 
+f_dir_filt <- file.path(dir, "filtered", 
+                              (paste0(samplenames_dir, 
+                                     "_F_filt.fastq")))
+r_dir_filt <- file.path(dir, "filtered", 
+                              paste0(samplenames_dir, 
+                                     "_R_filt.fastq")) 
+
+# Creating quality profiles for the primer trimmed forward and reverse reads. 
+f_dir_cut_qual_plot <- 
+  plotQualityProfile(f_dir_cut, aggregate = TRUE) #long
+
+f_dir_cut_qual_plot + 
+  geom_vline(aes(xintercept = 230))
+
+r_dir_cut_qual_plot <- 
+  plotQualityProfile(r_dir_cut, aggregate = TRUE) #long
+
+r_dir_cut_qual_plot + 
+  geom_vline(aes(xintercept = 230))
+
+# Quality filtering reads using a maximum expected error threshold of 2 for the forward and reverse reads. 
+dir_filter.out <- filterAndTrim(fwd = f_dir_cut, 
+                                     filt = f_dir_filt, 
+                                     rev = r_dir_cut, 
+                                     filt.rev = r_dir_filt, 
+                                     maxEE = c(2, 2), 
+                                     compress = FALSE, truncLen = 230, 
+                                     multithread = TRUE) #long
+ 
+# Converting the filter.out_v4_soil_p2 object into a data frame. 
+dir_filter.out <- as.data.frame(dir_filter.out)
+
+# Checking to see the effects of the quality filtering on per sample read counts. 
+dir_filter.out$diffs <- 
+  dir_filter.out$reads.in-dir_filter.out$reads.out
+
+# Using the order command to sort the dataframe by the new column (diffs) that created above. 
+dir_filter.out[order(dir_filter.out$reads.out),]
+
+# Removing files that were not written as a result of no reads passing filter
+f_dir_filt_no_missing <- subset(f_dir_filt, basename(f_dir_filt)%in%list.files(file.path(dir, "filtered")))
+
+r_dir_filt_no_missing <- subset(r_dir_filt, basename(r_dir_filt)%in%list.files(file.path(dir, "filtered")))
+
+# Generating quality plots for the forward and reverse reads after quality filtering
+f_dir_filt_no_missing_qual_plot <- plotQualityProfile(f_dir_filt_no_missing, aggregate = TRUE)
+f_dir_filt_no_missing_qual_plot
+r_dir_filt_no_missing_qual_plot <- plotQualityProfile(r_dir_filt_no_missing, aggregate = TRUE)
+r_dir_filt_no_missing_qual_plot
+```
+
+(past this point it doesn't get put into a new directory just saved in the R environment. There will be objects to open and variables to change throughout.)
+
+## DADA Denoising
+
+Denoising data by first estimating sequencing error rates and using the dada algorithm. 
+
+```{r}
+# De-replicate forward and reverse reads
+f_dir_derep <- derepFastq(f_dir_filt_no_missing, verbose = TRUE)
+r_dir_derep <- derepFastq(r_dir_filt_no_missing, verbose = TRUE)
+
+# Assigning the sample names to the de-replicated sequence objects
+names(f_dir_derep) <- subset(samplenames_dir, 
+                                       samplenames_dir%in%sub("_F_filt.fastq", "", 
+                                          names(f_dir_derep)))
+names(r_dir_derep) <- subset(samplenames_dir, 
+                                       samplenames_dir%in%sub("_R_filt.fastq", "", 
+                                          names(r_dir_derep)))
+
+# Learning errors for forward and reverse reads. 
+f_dir_error <- learnErrors(f_dir_derep, multithread = TRUE)
+r_dir_error <- learnErrors(r_dir_derep, multithread = TRUE)
+
+# Error plots for forward & reverse reads
+f_dir_error_plot <- plotErrors(f_dir_error, nominalQ = TRUE)
+f_dir_error_plot
+r_dir_error_plot <- plotErrors(r_dir_error, nominalQ = TRUE)
+r_dir_error_plot
+
+# De-noise forward reads with dada2
+f_dir_dada <- dada(f_dir_derep, err = f_dir_error, 
+                         multithread = TRUE, pool = TRUE) # long! Can perform in QIIME2 if it won't run here, but R gives better diversity estimates because it doesn't filter out singletons
+
+# De-noise reverse reads with dada2
+r_dir_dada <- dada(r_dir_derep, err = r_dir_error, 
+                         multithread = TRUE, pool = TRUE) # long! Can perform in QIIME2 if it won't run here, but R gives better diversity estimates because it doesn't filter out singletons
+```
+
+
+# Merging the de-noised reads with mergePairs
+
+```{r}
+# Merging forward and reverse reads using mergePairs.
+dir_merge <- mergePairs(f_dir_dada, f_dir_derep, r_dir_dada,
+                              r_dir_derep, verbose = TRUE)
+
+# Creating a sequence table
+dir_seqtab <- makeSequenceTable(dir_merge)
+# histogram to check average sequence length
+hist(nchar(colnames(dir_seqtab)))
+```
+
+
+# save for this run!
+
+```{r}
+# rename by compartment
+######
+soil_rhizo_seqtab <- dir_seqtab
+
+# write to the folder
+write.table(soil_rhizo_seqtab, "soil_rhizo_seqtab_16S_asv.txt", sep = "\t")
+
+# save as matrix
+soil_rhizo_seqtab_matrix <- as.matrix(soil_rhizo_seqtab)
+
+# write matrix
+write.table(soil_rhizo_seqtab_matrix, "soil_rhizo_seqtab_16S_asv_matrix.txt", sep = "\t")
+```
