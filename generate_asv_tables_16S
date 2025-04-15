@@ -164,27 +164,24 @@ t_seqtab_tax <- merge(t_seqtab_filt, taxa_nohost, by = "row.names")
 #####
 # Change the sub for different amplicons
 asv <- as.character(c(1:nrow(t_seqtab_tax)))
-asv <- paste0("OTU_16S_", labels(asv)) #### change label
+asv <- paste0("ASV_16S_", labels(asv)) #### change label
 
 # Write with the sequences
 #####
 # Change the sub for different amplicons
-write.table(t_seqtab_tax, "o16S_otutab_sequences.csv", 
+write.table(t_seqtab_tax, "o16S_asvtab_sequences.csv", 
             row.names = TRUE, col.names = TRUE, sep = ',')
 
-write.table(t_seqtab_tax, "o16S_otutab_sequences.txt", 
+write.table(t_seqtab_tax, "o16S_asvtab_sequences.txt", 
             row.names = TRUE, col.names = TRUE, sep = '\t')
 
 row.names(t_seqtab_tax) <- NULL
 row.names(t_seqtab_tax) <- asv
 
-write.table(t_seqtab_tax, "o16S_otutab.csv", 
+write.table(t_seqtab_tax, "o16S_asvtab.csv", 
             row.names = TRUE, col.names = TRUE, sep = ',')
 
-write.table(t_seqtab_tax, "o16S_otutab.txt", 
+write.table(t_seqtab_tax, "o16S_asvtab.txt", 
             row.names = TRUE, col.names = TRUE, sep = '\t')
-
-# couldn't figure out what this was for
-# sort(colSums(select_if(t_dir_seqtab_tax, is.numeric)))
 ```
 
