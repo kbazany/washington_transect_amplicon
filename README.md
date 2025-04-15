@@ -2,7 +2,7 @@
 16S and ITS amplicon sequencing data over a naturally occurring climate gradient over the Cascade Mountains in Washington State. Bioinformatics, statistics, and visualizations.
 
 1. Processing amplicon sequencing sequences
-2. Combining sequencing runs and generating ASV tables
+2. Combining sequencing runs, align with taxonomy databases, and generating ASV tables
 
 * Files are in order, though 1.1-1.4 are interchangeable as are 2.1-2.2 and can be done out of order within.
 
