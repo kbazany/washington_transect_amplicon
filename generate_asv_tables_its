@@ -1,0 +1,179 @@
+---
+title: "generate_asv_tables_its"
+output: html_document
+date: "2025-04-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Notes
+
+In this code we are...
+1) combining sequencing analysis across multiple sequencing runs
+2) removing chimmeras
+3) clustering asv into otu
+4) aligning asv and otu tables to SILVA taxonomy
+5) producing finished asv and otu tables with SILVA taxonomy information
+
+# Packages
+
+### Install Packages
+
+install.packages("BiocManager")
+install.packages("Biostrings")
+install.packages("ShortRead")
+install.packages("reticulate")
+install.packages("tidyverse")
+install.packages("ape")
+BiocManager::install("dada2")
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("dada2", version = "3.20")
+BiocManager::install("DECIPHER")
+install.packages("devtools")
+library("devtools")
+devtools::install_github("benjjneb/dada2", ref="v1.16") # change the ref argument to get other versions
+
+### Load Packages
+
+```{r}
+library(dada2)
+library(Biostrings)
+library(ShortRead)
+library(reticulate)
+library(tidyverse)
+library(ape)
+library(DECIPHER)
+```
+
+# Read sequencing run tables
+
+```{r}
+# check file names and paths
+########
+# read in soil_rhizo data
+soil_rhizo_seqtab <- read.table("soil_rhizo_seqtab_its_asv.txt", header = TRUE, 
+                                sep = '\t', na.strings = ".") #long
+
+# read in root data
+root_seqtab <- read.table("root_seqtab_its_asv.txt", header = TRUE, 
+                          sep = '\t', na.strings = ".") #long
+
+# save as matrix
+soil_rhizo_seqtab_m <- as.matrix(soil_rhizo_seqtab)
+root_seqtab_m <- as.matrix(root_seqtab)
+```
+
+# Combine tables
+
+```{r}
+merged_seqtab <- mergeSequenceTables(soil_rhizo_seqtab_m, root_seqtab_m)
+
+# check dimensions of original and combined table (should have added rows and combined some columns)
+dim(soil_rhizo_seqtab_m)
+dim(root_seqtab_m)
+dim(merged_seqtab)
+
+# writing to the data folder
+####### 
+# change file name
+write.table(merged_seqtab, "merged_seqtab_its_asv.txt", sep = "\t")
+```
+
+# Remove chimeras
+
+```{r}
+# Remove chimeras from the merged ASV table:
+seqtab_nochim <- removeBimeraDenovo(merged_seqtab, 
+                                         method = "consensus",  
+                                         multithread = TRUE, 
+                                         verbose = TRUE)
+
+# Number of ASVs in the table:
+ncol(seqtab_nochim)
+# Number of samples in the table:
+nrow(seqtab_nochim)
+
+# Number of sequences
+sum(merged_seqtab)
+# Number of sequences
+sum(seqtab_nochim)
+
+# write nochim seqtab
+######
+# change file name
+write.table(seqtab_nochim, "nochim_merged_seqtab_its_asv.txt", sep = "\t")
+```
+
+# Assign taxonomy with assignTaxonomy
+
+I used the .fasta file on the DADA2 github under UNITE resources
+https://unite.ut.ee/repository.php
+
+```{r}
+# Assigning taxonomy using the assignTaxonomy function. 
+#### Update SILVA each time to make sure we are getting the latest assignments 
+# Assign sequences with SILVA:
+taxa <- assignTaxonomy(seqtab_nochim, 
+                          "sh_general_release_dynamic_04.04.2024_dev.fasta", 
+                          multithread = TRUE, minBoot = 80) # long
+
+# Converting the taxonomy assignments to data frame so we can filter the taxonomic assignments.
+taxa_original <- as.data.frame(taxa)
+
+# Filtering out ASVs not assigned to a phyla
+taxa_no_na <- taxa_original[-(which(is.na(taxa_original$Phylum))),]
+
+# skipping host filtering because there shouldn't be host reads aligning in the fungal database
+taxa_nohost <- taxa_no_na
+```
+
+## Taxonomy Merging and ASV Filtering
+The last step is to filter the ASV abundance table by merging the ASV table with the taxonomy assignments. This will remove ASVs from the count table that were not assigned to a fungal phyla or were identified as nematodes or plant sequences. 
+
+```{r}
+# Transposing the ASV table so that taxonomy can be added. 
+t_seqtab_nochim <- t(seqtab_nochim)
+
+# Merging the two tables together based on row name. 
+t_seqtab_filt <- 
+  t_seqtab_nochim[row.names(t_seqtab_nochim)%in%row.names(
+    taxa_nohost),]
+
+#####
+# Change the sub for different amplicons
+colnames(t_seqtab_filt) <- sub("ITS_S[0-9].*", "ITS", colnames(t_seqtab_nochim))
+
+# Number of ASVs & number of sequences post-filtering
+nrow(t_seqtab_filt)
+sum(t_seqtab_filt)
+
+# Merging taxonomy information into ASV table
+t_seqtab_tax <- merge(t_seqtab_filt, taxa_nohost, by = "row.names")
+
+#  Creating ASV labels and make these new row names.
+#####
+# Change the sub for different amplicons
+asv <- as.character(c(1:nrow(t_seqtab_tax)))
+asv <- paste0("ASV_ITS_", labels(asv)) #### change label
+
+# Write with the sequences
+#####
+# Change the sub for different amplicons
+write.table(t_seqtab_tax, "its_asvtab_sequences.csv", 
+            row.names = TRUE, col.names = TRUE, sep = ',')
+
+write.table(t_seqtab_tax, "its_asvtab_sequences.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
+
+row.names(t_seqtab_tax) <- NULL
+row.names(t_seqtab_tax) <- asv
+
+write.table(t_seqtab_tax, "its_asvtab.csv", 
+            row.names = TRUE, col.names = TRUE, sep = ',')
+
+write.table(t_seqtab_tax, "its_asvtab.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
+```
