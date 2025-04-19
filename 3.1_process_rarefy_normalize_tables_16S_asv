@@ -8,122 +8,19 @@ date: "2025-04-15"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# install packages (filter so that only the necessary ones are included)
+# packages to install
 
-```{r}
-install.packages("ape")
-install.packages("igraph")
-
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("edgeR")
 if(!requireNamespace("BiocManager")){
   install.packages("BiocManager")
 }
 BiocManager::install("phyloseq") # install from binaries not source version
-BiocManager::install("DESeq2")
-
 install.packages("tidyverse")
-install.packages("ggplot2")
+install.packages("edgeR")
 
-if (!requireNamespace("devtools", quietly = TRUE)){install.packages("devtools")}
-devtools::install_github("jbisanz/qiime2R")
-
-install.packages("ggpubr")
-install.packages("rcompanion")
-install.packages("FSA")
-install.packages("ggh4x")
-install.packages("microViz")
-
-install.packages(
-  "microViz",
-  repos = c(davidbarnett = "https://david-barnett.r-universe.dev", getOption("repos"))
-)
-
-BiocManager::install("microbiome")
-
-install.packages("phylosmith")
-
-devtools::install_github('schuyler-smith/phylosmith')
-
-install.packages("hillR")
-install.packages("plotly")
-
-devtools::install_github("microEcology/pime")
-
-install.packages("factoextra")
-install.packages("ggbiplot")
-install.packages("ordr")
-install.packages("tcltk")
-install.packages("BiodiversityR")
-install.packages("agricolae")
-install.packages("pheatmap")
-
-BiocManager::install("ANCOMBC")
-
-install.packages("ggtern")
-install.packages("microbiomeutilities")
-devtools::install_github("microsud/microbiomeutilities")
-
-install.packages('devtools'); 
-library(devtools)
-install_github("MichaelChirico/funchir")
-library("funchir")
-
-funchir::stale_package_check('test.R')
-lintr::unused_import_linter("test.R")
-
-install.packages("packrat")
-packrat::clean()
-```
-
-# load packages
-
-```{r}
-library("ape")
-library("igraph")
-library("phyloseq")
-library("tidyverse")
-library("ggplot2")
-library("qiime2R")
-library("ggpubr")
-library("scales")
-library("viridis")
-library("car")
-library("rcompanion")
-library("FSA")
-library("vegan")
-library("RColorBrewer")
-library("ggh4x")
-library("microViz")
-library("microbiome")
-library("phylosmith")
-library("hillR")
-library("rstatix")
-library("plotly")
-library("pime")
-library("factoextra")
-library("ggbiplot")
-library("stats")
-library("ordr")
-library("DESeq2")
-library("tcltk")
-library("BiodiversityR")
-library("agricolae")
-library("pheatmap")
-library("ANCOMBC")
-library("ggrepel")
-library("microbiome")
-library("ggtern")
-```
-
-
-# filtered packages to install
-
-```{r}
-if (!require("BiocManager", quietly = TRUE))
-    install.packages("BiocManager")
-BiocManager::install("edgeR")
-```
-
-# filtered packages to library in
+# packages to load
 
 ```{r}
 library("vegan")
