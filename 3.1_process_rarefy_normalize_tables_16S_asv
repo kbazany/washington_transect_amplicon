@@ -133,6 +133,7 @@ totutab_root <- totutab[grep("root", row.names(totutab)),]
 ```{r}
 # Function for constructing rarefaction curves (written by Aaron Onufrak)
 rarefaction_plotter<-function(nonrarefied_asv_tab,metadata,vars,color){
+  # Constructing rarefaction curves for fungal root communities
   rarefaction_tidy<-vegan::rarecurve(nonrarefied_asv_tab,tidy = TRUE)
   rarefaction_obj<-merge(metadata,rarefaction_tidy,by.x=0,by.y="Site")
   colnames(rarefaction_obj)<-sub("Row.names","Sample.ID",colnames(rarefaction_obj))
@@ -140,7 +141,7 @@ rarefaction_plotter<-function(nonrarefied_asv_tab,metadata,vars,color){
   replicate_break<-c()
   for(i in 1:length(nonrarefied_asv_tab)){
     sample_depth<-sort(rowSums(nonrarefied_asv_tab))[i]
-    rarefied_table<-suppressWarnings(as.data.frame(rarefy(nonrarefied_asv_tab,sample=sample_depth)))
+    rarefied_table<-suppressWarnings(as.data.frame(rrarefy(nonrarefied_asv_tab,sample=sample_depth)))
     ds.rarefied<-as.data.frame(subset(rarefied_table,rowSums(rarefied_table)>=sample_depth))
     test.df<-as.data.frame(merge(ds.rarefied,metadata,by.x=0,by.y=0)) %>%
   dplyr::count({{vars}},.drop=FALSE)
