@@ -19,6 +19,8 @@ if(!requireNamespace("BiocManager")){
 BiocManager::install("phyloseq") # install from binaries not source version
 install.packages("tidyverse")
 install.packages("edgeR")
+install.packages("remotes")
+remotes::install_github("david-barnett/microViz")
 
 # packages to load
 
@@ -27,6 +29,7 @@ library("vegan")
 library("tidyverse")
 library("phyloseq")
 library("edgeR")
+library("microViz")
 ```
 
 # Load files from the amplicon analysis results
@@ -50,7 +53,7 @@ row.names(meta) <- meta$sample_id
 meta <- meta[,-1]
 ```
 
-# Filter out low occupancy OTUs
+# Filter out rare OTUs
 
 ```{r}
 # total OTUs (change to fit dimensions of OTU table)
@@ -222,17 +225,23 @@ physeq_soil <- subset_samples(physeq, niche == "soil")
 physeq_rhizo <- subset_samples(physeq, niche == "rhizo")
 physeq_root <- subset_samples(physeq, niche == "roots")
 
+# add occupancy filter
+physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
+physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
+physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
+physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+
 # rarefy each sample type separately
 ## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
-physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=48900, physeq_soil) %>%
+physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=47000, physeq_soil) %>%
   rarefy_even_depth(rngseed = 555)
-physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=26800, physeq_rhizo) %>%
+physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=26700, physeq_rhizo) %>%
   rarefy_even_depth(rngseed = 555)
-physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=26700, physeq_root) %>%
+physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=26000, physeq_root) %>%
   rarefy_even_depth(rngseed = 555)
 
 # rarefy the whole set when looking at all the compartments together
-physeq_rare <-prune_samples(sample_sums(physeq)>=26700, physeq) %>%
+physeq_rare <-prune_samples(sample_sums(physeq)>=26500, physeq) %>%
   rarefy_even_depth(rngseed = 555) 
 
 # check tables
@@ -416,6 +425,5 @@ write.table(otutab_soil_tss, "asv_tables/tab_soil_tss_16S.txt", col.names = TRUE
 write.table(otutab_rhizo_tss, "asv_tables/tab_rhizo_tss_16S.txt", col.names = TRUE, sep = '\t')
 write.table(otutab_root_tss, "asv_tables/tab_root_tss_16S.txt", col.names = TRUE, sep = '\t')
 ```
-
 
 
