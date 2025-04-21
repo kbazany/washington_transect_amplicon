@@ -390,19 +390,19 @@ write.table(meta_root_raw, "asv_tables/meta_root_full_ITS.txt", col.names = TRUE
 # full
 write.table(otutab_rare, "asv_tables/tab_rare_ITS.txt", col.names = TRUE, sep = '\t')
 write.table(tax_rare, "asv_tables/tax_rare_ITS.txt", col.names = TRUE, sep = '\t')
-write.table(meta_rare, "asv_tables/meta_full_ITS.txt", col.names = TRUE, sep = '\t')
+write.table(meta_rare, "asv_tables/meta_rare_ITS.txt", col.names = TRUE, sep = '\t')
 # soil
 write.table(otutab_soil_rare, "asv_tables/tab_soil_rare_ITS.txt", col.names = TRUE, sep = '\t')
 write.table(tax_soil_rare, "asv_tables/tax_soil_rare_ITS.txt", col.names = TRUE, sep = '\t')
-write.table(meta_soil_rare, "asv_tables/meta_soil_full_ITS.txt", col.names = TRUE, sep = '\t')
+write.table(meta_soil_rare, "asv_tables/meta_soil_rare_ITS.txt", col.names = TRUE, sep = '\t')
 # rhizo
 write.table(otutab_rhizo_rare, "asv_tables/tab_rhizo_rare_ITS.txt", col.names = TRUE, sep = '\t')
 write.table(tax_rhizo_rare, "asv_tables/tax_rhizo_rare_ITS.txt", col.names = TRUE, sep = '\t')
-write.table(meta_rhizo_rare, "asv_tables/meta_rhizo_full_ITS.txt", col.names = TRUE, sep = '\t')
+write.table(meta_rhizo_rare, "asv_tables/meta_rhizo_rare_ITS.txt", col.names = TRUE, sep = '\t')
 # root
 write.table(otutab_root_rare, "asv_tables/tab_root_rare_ITS.txt", col.names = TRUE, sep = '\t')
 write.table(tax_root_rare, "asv_tables/tax_root_rare_ITS.txt", col.names = TRUE, sep = '\t')
-write.table(meta_root_rare, "asv_tables/meta_root_full_ITS.txt", col.names = TRUE, sep = '\t')
+write.table(meta_root_rare, "asv_tables/meta_root_rare_ITS.txt", col.names = TRUE, sep = '\t')
 
 # tmm
 write.table(otutab_tmm, "asv_tables/tab_tmm_ITS.txt", col.names = TRUE, sep = '\t')
@@ -417,4 +417,5 @@ write.table(otutab_rhizo_tss, "asv_tables/tab_rhizo_tss_ITS.txt", col.names = TR
 write.table(otutab_root_tss, "asv_tables/tab_root_tss_ITS.txt", col.names = TRUE, sep = '\t')
 ```
 
+ 
  
