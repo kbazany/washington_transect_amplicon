@@ -222,17 +222,29 @@ physeq_soil <- subset_samples(physeq, niche == "soil")
 physeq_rhizo <- subset_samples(physeq, niche == "rhizo")
 physeq_root <- subset_samples(physeq, niche == "roots")
 
+# add occupancy filter
+physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
+physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
+physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
+physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+
+# check reads per sample
+sort(sample_sums(physeq_soil))
+sort(sample_sums(physeq_rhizo))
+sort(sample_sums(physeq_root))
+sort(sample_sums(physeq))
+
 # rarefy each sample type separately
 ## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
 physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=32000, physeq_soil) %>%
   rarefy_even_depth(rngseed = 555)
 physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=22590, physeq_rhizo) %>%
   rarefy_even_depth(rngseed = 555)
-physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=40000, physeq_root) %>%
+physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=15000, physeq_root) %>%
   rarefy_even_depth(rngseed = 555)
 
 # rarefy the whole set when looking at all the compartments together
-physeq_rare <-prune_samples(sample_sums(physeq)>=22500, physeq) %>%
+physeq_rare <-prune_samples(sample_sums(physeq)>=18000, physeq) %>%
   rarefy_even_depth(rngseed = 555) 
 
 # check tables
@@ -417,5 +429,4 @@ write.table(otutab_rhizo_tss, "asv_tables/tab_rhizo_tss_ITS.txt", col.names = TR
 write.table(otutab_root_tss, "asv_tables/tab_root_tss_ITS.txt", col.names = TRUE, sep = '\t')
 ```
 
- 
  
