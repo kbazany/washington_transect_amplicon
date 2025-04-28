@@ -1,0 +1,154 @@
+---
+title: "cluster_otus_ITS"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install packages
+
+install.packages("tidyverse")
+install.packages("DECIPHER")
+install.packages("Biostrings")
+
+# Load Packages
+
+```{r}
+# packages
+library(tidyverse)
+library(DECIPHER)
+library(Biostrings)
+```
+
+# Load files
+
+```{r}
+t_seqtab_tax <- read.table("its_asvtab.txt", header = TRUE, sep = "\t")
+taxa_original <- t_seqtab_tax %>%
+  select(-(2:(ncol(t_seqtab_tax)-7)))
+```
+
+# Assign terms
+
+```{r}
+#####
+# adjust based on computer resources
+nproc <- 8 # set to number of cpus/processors to use for the clustering
+
+# modify seqtab
+seqtab <- t(t_seqtab_tax)
+colnames(seqtab) <- seqtab[1, ]
+seqtab <- seqtab[-1, ]
+seqtab <- seqtab[-((nrow(seqtab)-6):nrow(seqtab)), ]
+
+# set terms
+asv_sequences <- colnames(seqtab)
+sample_names <- rownames(seqtab)
+dna <- Biostrings::DNAStringSet(asv_sequences)
+```
+
+# Cluster (long step)
+
+```{r}
+# cluster
+# cutoff = 0.03 means 97% similarity
+clusters <- DECIPHER::Clusterize(dna, cutoff = 0.03, processors = nproc)
+```
+
+# Make OTU table
+
+```{r}
+# prep by adding sequences to the `clusters` data frame
+clusters <- clusters %>%
+  add_column(sequence = asv_sequences)
+
+# Make OTU table
+merged_seqtab <- seqtab %>%
+  # setup: turn seqtab into a tibble with rows = ASVs and columns = samples
+  t() %>%
+  as_tibble(rownames = "sequence") %>%
+  # add the cluster information
+  left_join(clusters, by = "sequence") %>%
+  # merge ASVs in the same cluster, summing abundances within samples
+  group_by(cluster) %>%
+  mutate(across(where(is.character), as.numeric)) %>% # adding this step because the seqtab is full of characters for some reason
+  summarize_at(vars(-sequence), sum) %>% 
+  # Set new taxa names to OTU<cluster #> 
+  mutate(OTU_ID = paste0("OTU", "_", cluster)) %>%
+  # convert back to a matrix in the original orientation
+  column_to_rownames("OTU_ID") %>%
+  as("matrix") 
+
+# Align taxonomy to clusters
+tax <- taxa_original %>% 
+  as_tibble() %>%
+  rename("sequence" = "Row.names") %>%
+  inner_join(clusters) %>%
+  select(-sequence)
+
+# unique rows only
+tax_unique <- tax %>%
+  distinct()
+
+# Align to seqtab with tax by cluster
+otutab_tax <- merged_seqtab %>%
+  as.data.frame() %>%
+  inner_join(tax_unique, by = join_by(cluster))
+
+# Taking the last row only (with the most info. If I end up doing OTUs I will do something else)
+otutab_tax <- otutab_tax %>%
+  group_by(cluster) %>%
+  slice_tail(n = 1) %>%
+  ungroup()
+
+# add OTU ID
+otutab_tax <- otutab_tax %>%
+  mutate(OTU_ID = paste0("OTU", "_", cluster)) %>%
+  # convert back to a matrix in the original orientation
+  column_to_rownames("OTU_ID") %>%
+  select(-cluster)
+
+# split into taxonomy
+otu_tax <- otutab_tax[,(ncol(otutab_tax)-6):ncol(otutab_tax)]
+otu_tab <- otutab_tax[,1:(ncol(otutab_tax)-7)]
+
+# clean up sample names
+otutab_tax <- otutab_tax %>%
+  rename_with(~ str_remove(., "_ITS"))
+otu_tab <- otu_tab %>%
+  rename_with(~ str_remove(., "_ITS"))
+
+# find host reads
+test <- otutab_tax %>%
+  filter_if(
+    is.character,
+    any_vars(str_detect(., "chloro|mito|ricke|plan")))
+## didn't find any real host contamination so the previous filtering must have worked
+```
+
+# Write OTU and taxonomy tables
+
+```{r}
+# Write with the sequences
+#####
+# Change the sub for different amplicons
+# otu tables
+write.table(otu_tab, "oITS_otutab.csv", 
+            row.names = TRUE, col.names = TRUE, sep = ',')
+write.table(otu_tab, "oITS_otutab.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
+# taxonomies
+write.table(otu_tax, "oITS_otu_tax.csv", 
+            row.names = TRUE, col.names = TRUE, sep = ',')
+write.table(otu_tax, "oITS_otu_tax.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
+# otu tables with taxonomies
+write.table(otutab_tax, "oITS_otutab_tax.csv", 
+            row.names = TRUE, col.names = TRUE, sep = ',')
+write.table(otutab_tax, "oITS_otutab_tax.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
+```
+
