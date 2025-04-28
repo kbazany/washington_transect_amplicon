@@ -1,0 +1,453 @@
+---
+title: "process_rarefy_normalize_tables_16S_otu"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# packages to install
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("edgeR")
+if(!requireNamespace("BiocManager")){
+  install.packages("BiocManager")
+}
+BiocManager::install("phyloseq") # install from binaries not source version
+install.packages("tidyverse")
+install.packages("edgeR")
+install.packages("remotes")
+remotes::install_github("david-barnett/microViz")
+
+# packages to load
+
+```{r}
+library("vegan")
+library("tidyverse")
+library("phyloseq")
+library("edgeR")
+library("microViz")
+```
+
+# Load files from the otu table clustering
+
+Load otu tables generated in the last step
+
+```{r}
+otutabtax <- read.table("o16S_otutab_tax.txt", header = TRUE, sep = "\t")
+otutabtax <- as.data.frame(otutabtax)
+```
+
+Create a metadata file with all the necessary sample information and identical sample names to those in the asv table. 
+
+```{r}
+# read in new metadata
+meta <- read.table("full_metadata.txt", header = TRUE, sep = '\t')
+# make the rownames the sample IDs
+meta <- as.data.frame(meta)
+row.names(meta) <- meta$sample_id
+meta <- meta[,-1]
+```
+
+# Filter out rare OTUs (currently set to keep rare reads)
+
+#```{r}
+# total OTUs (change to fit dimensions of OTU table)
+otutotals <- mutate(.data = otutabtax, otutotal = rowSums(otutabtax[sapply(otutabtax, is.numeric)]))
+# identify rare OTUs (change based on data type and number of samples)
+
+## for no filtering 
+otunotrare <- otutotals
+
+# otutotal > ~ 30% of samples
+#otunotrare <- otutotals %>%
+#  filter(otutotal > 30)
+
+dim(otutotals) # check old dimensions
+dim(otunotrare) # check new dimensions to see how much is cut
+# cut rare column
+otutabtax_filt <- otunotrare[ , 1:ncol(otutabtax)]
+otutabtax <- otutabtax_filt
+#```
+
+# Checking the files
+
+```{r}
+row.names(otutabtax) # should be OTU numbers
+colnames(otutabtax) # should be sample IDs
+dim(otutabtax)
+# revise otutabtax so that sample names match metadata and reflect asv status
+# remove and replace unwanted character strings
+colnames(otutabtax) <- gsub("_16S", "", colnames(otutabtax))
+# subset so that only ASV counts are included
+otutab <- otutabtax[,1:(length(otutabtax)-7)] # removes taxonomy
+# check dimensions of new table and manually check first and last sample
+dim(otutab)
+# Determining number of sequences and OTUs that are retained after sequence process
+sum(otutab)
+nrow(otutab)
+# transpose for vegan
+totutab <- as.data.frame(t(otutab))
+# make separate taxonomy file
+tax <- otutabtax[,(length(otutabtax)-6):length(otutabtax)]
+```
+
+# Check metadata and otutab alignment
+
+```{r}
+# run to find samples that don't match in the metadata and otutab
+test1 <- totutab %>%
+  rownames_to_column("sample")
+test2 <- meta %>%
+  rownames_to_column("sample")
+no_match <- anti_join(test1, test2)
+dim(test1)
+dim(test2)
+dim(no_match)
+View(no_match)
+```
+
+# Remove from otutab and totutab if they are blanks or not part of the experiment
+
+```{r}
+# Remove rows containing "NTC" or "blank"
+# can adjust for other data signifiers
+totutab <- totutab[!(grepl("NTC", rownames(totutab)) | grepl("blank", rownames(totutab))), ]
+# For columns
+otutabtax <- otutabtax %>% 
+  select(-contains("NTC")) %>%
+  select(-contains("blank"))
+otutab <- otutab %>% 
+  select(-contains("NTC")) %>%
+  select(-contains("blank"))
+```
+
+
+# Subsetting by niche
+
+```{r}
+totutab_soil <- totutab[grep("soil", row.names(totutab)),]
+totutab_rhizo <- totutab[grep("rhizo", row.names(totutab)),]
+totutab_root <- totutab[grep("root", row.names(totutab)),]
+```
+
+# Write function for rare curves (taking out for now because it is very computationally demanding)
+
+```{r}
+# Function for constructing rarefaction curves (written by Aaron Onufrak)
+rarefaction_plotter<-function(nonrarefied_asv_tab,metadata,vars,color){
+  # Constructing rarefaction curves for fungal root communities
+  rarefaction_tidy<-vegan::rarecurve(nonrarefied_asv_tab,tidy = TRUE)
+  rarefaction_obj<-merge(metadata,rarefaction_tidy,by.x=0,by.y="Site")
+  colnames(rarefaction_obj)<-sub("Row.names","Sample.ID",colnames(rarefaction_obj))
+  replicate_min<-c()
+  replicate_break<-c()
+  for(i in 1:length(nonrarefied_asv_tab)){
+    sample_depth<-sort(rowSums(nonrarefied_asv_tab))[i]
+    rarefied_table<-suppressWarnings(as.data.frame(rrarefy(nonrarefied_asv_tab,sample=sample_depth)))
+    ds.rarefied<-as.data.frame(subset(rarefied_table,rowSums(rarefied_table)>=sample_depth))
+    test.df<-as.data.frame(merge(ds.rarefied,metadata,by.x=0,by.y=0)) %>%
+  dplyr::count({{vars}},.drop=FALSE)
+    print(test.df)
+if(((nrow(test.df[test.df$n>=3,]))>0)&&(!(nrow(test.df[test.df$n<3,]))>=1)){
+  replicate_min<-c(replicate_min,sample_depth)
+}
+if((nrow(test.df[test.df$n<3,]))>0){
+  replicate_break<-c(replicate_break,sample_depth)
+  break
+}
+    print(replicate_break)
+    print(replicate_min[length(replicate_min)])
+  }
+  seq_counts_unrarefied<-sort(rowSums(nonrarefied_asv_tab))
+  rarefaction_plot<-ggplot()+
+  geom_line(data=rarefaction_obj,aes(x=Sample,y=Species,color=.data[[color]],group=.data[["Sample.ID"]]))+
+  geom_vline(data=NULL,xintercept=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.30),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]),linetype=2)+
+  geom_vline(data=NULL,xintercept=replicate_min[length(replicate_min)],color="green")+
+    geom_vline(data=NULL,xintercept=replicate_break[1],color="red")+
+    scale_x_continuous(
+      breaks=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.30),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]),
+      labels=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.3),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]))+
+  geom_text(data=NULL,aes(x=replicate_min[length(replicate_min)]-1000,y=max(rarefaction_obj$Species+10),label=replicate_min[length(replicate_min)],angle=90))+
+      geom_text(data=NULL,aes(x=replicate_break[1]-1000,y=max(rarefaction_obj$Species+10),label=replicate_break[1],angle=90))+
+    theme(panel.background = element_blank(),panel.border = element_rect(fill=NA,color="black"))+
+  xlab("Number of Sequences")+
+  ylab("ASV Count")
+  rarefaction_information<-list(rarefaction_obj,rarefaction_plot)
+  print(paste0("The maximum rarefaction cut-off that can be used to retain at least 3 replicates per treatment is ",replicate_min[length(replicate_min)]))
+  return(rarefaction_information)
+
+    
+}
+```
+
+# Rarefy
+## Taking out to reduce runtime. computationally demanding
+
+```{r}
+# Generating rarefaction curves
+rare <- rarefaction_plotter(nonrarefied_asv_tab = totutab, 
+                                metadata = meta, vars = niche, color = "niche") # long
+
+rarefaction <- rare
+# Pulling out rarefaction curves
+rareplot <- rare[[2]]
+rareplot
+
+# save plot
+#####
+ggsave("results/rareplot_16S_otu.png", 
+       plot = rareplot, width = 16, height = 10)
+
+# Determining number of sequences per sample prior to rarefaction
+totutab_sample_counts <- as.data.frame(sort(rowSums(totutab)))
+totutab_sample_counts
+
+#####
+write.table(totutab_sample_counts, 
+            "results/sample_counts_pre_rare_16S_otu.txt", 
+            col.names = TRUE, sep = '\t')
+```
+
+# Create Phyloseq Object
+
+```{r}
+physeq <- phyloseq(
+  otu_table(otutab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+```
+
+# Subset and Rarefy
+
+```{r}
+# sort by niche
+physeq_soil <- subset_samples(physeq, niche == "soil")
+physeq_rhizo <- subset_samples(physeq, niche == "rhizo")
+physeq_root <- subset_samples(physeq, niche == "roots")
+
+# check reads per sample
+head(sort(sample_sums(physeq)))
+head(sort(sample_sums(physeq_soil)))
+head(sort(sample_sums(physeq_rhizo)))
+head(sort(sample_sums(physeq_root)))
+
+## taking out to run without occupancy filter
+# add occupancy filter
+#physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
+#physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
+#physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
+#physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+
+## taking out to run without occupancy filter
+# testing strict filtering
+#physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 3000)
+
+# rarefy each sample type separately
+## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
+#####
+# change criteria
+physeq_soil_rare <- prune_samples(sample_sums(physeq_soil)>=47000, physeq_soil) %>%
+  rarefy_even_depth(rngseed = 555)
+physeq_rhizo_rare <- prune_samples(sample_sums(physeq_rhizo)>=26700, physeq_rhizo) %>%
+  rarefy_even_depth(rngseed = 555)
+physeq_root_rare <- prune_samples(sample_sums(physeq_root)>=26000, physeq_root) %>%
+  rarefy_even_depth(rngseed = 555)
+
+# rarefy the whole set when looking at all the compartments together
+physeq_rare <- prune_samples(sample_sums(physeq)>=26500, physeq) %>%
+  rarefy_even_depth(rngseed = 555) 
+
+## taking out to rarefy without occupancy filter
+# rarefy for strict filtering
+#physeq_rare <- prune_samples(sample_sums(physeq)>=10000, physeq) %>%
+#  rarefy_even_depth(rngseed = 555) 
+
+# check tables
+head(sample_sums(physeq))
+head(sample_sums(physeq_rare))
+head(sample_sums(physeq_soil))
+head(sample_sums(physeq_soil_rare))
+head(sample_sums(physeq_rhizo))
+head(sample_sums(physeq_rhizo_rare))
+head(sample_sums(physeq_root))
+head(sample_sums(physeq_root_rare))
+```
+
+# Extract objects from phyloseq
+
+```{r}
+# non-rarefied, non-normalized
+# full non-rarefied table
+otutab_raw <- as.data.frame(physeq@otu_table)
+tax_raw <- as.data.frame(physeq@tax_table)
+meta_raw <- as.data.frame(physeq@sam_data)
+# full non-rarefied soil table
+otutab_soil_raw <- as.data.frame(physeq_soil@otu_table)
+tax_soil_raw <- as.data.frame(physeq_soil@tax_table)
+meta_soil_raw <- as.data.frame(physeq_soil@sam_data)
+# full non-rarefied rhizo table
+otutab_rhizo_raw <- as.data.frame(physeq_rhizo@otu_table)
+tax_rhizo_raw <- as.data.frame(physeq_rhizo@tax_table)
+meta_rhizo_raw <- as.data.frame(physeq_rhizo@sam_data)
+# full non-rarefied root table
+otutab_root_raw <- as.data.frame(physeq_root@otu_table)
+tax_root_raw <- as.data.frame(physeq_root@tax_table)
+meta_root_raw <- as.data.frame(physeq_root@sam_data)
+
+# rarefied
+# full rarefied table
+otutab_rare <- as.data.frame(physeq_rare@otu_table)
+tax_rare <- as.data.frame(physeq_rare@tax_table)
+meta_rare <- as.data.frame(physeq_rare@sam_data)
+# full non-rarefied soil table
+otutab_soil_rare <- as.data.frame(physeq_soil_rare@otu_table)
+tax_soil_rare <- as.data.frame(physeq_soil_rare@tax_table)
+meta_soil_rare <- as.data.frame(physeq_soil_rare@sam_data)
+# full non-rarefied rhizo table
+otutab_rhizo_rare <- as.data.frame(physeq_rhizo_rare@otu_table)
+tax_rhizo_rare <- as.data.frame(physeq_rhizo_rare@tax_table)
+meta_rhizo_rare <- as.data.frame(physeq_rhizo_rare@sam_data)
+# full non-rarefied root table
+otutab_root_rare <- as.data.frame(physeq_root_rare@otu_table)
+tax_root_rare <- as.data.frame(physeq_root_rare@tax_table)
+meta_root_rare <- as.data.frame(physeq_root_rare@sam_data)
+```
+
+
+# perform TSS normalization
+
+```{r}
+# full
+# add pseudo counts
+tab_1 <- otutab_raw + 1
+# tss norm
+otutab_tss <- tab_1/(rowSums(tab_1))
+# soil
+tab_1 <- otutab_soil_raw + 1
+otutab_soil_tss <- tab_1/(rowSums(tab_1))
+# rhizo
+tab_1 <- otutab_rhizo_raw + 1
+otutab_rhizo_tss <- tab_1/(rowSums(tab_1))
+# root
+tab_1 <- otutab_root_raw + 1
+otutab_root_tss <- tab_1/(rowSums(tab_1))
+```
+
+
+# perform TMM normalization
+
+```{r}
+# full
+dge <- DGEList(counts = otutab_raw) # Create a DGEList object from the count data
+dge <- calcNormFactors(dge) # Perform TMM normalization
+# Get normalized counts
+otutab_tmm_mat <- cpm(dge)  # Use 'cpm' to calculate counts per million
+otutab_tmm <- as.data.frame(otutab_tmm_mat)
+# soil
+dge <- DGEList(counts = otutab_soil_raw) 
+dge <- calcNormFactors(dge) 
+otutab_tmm_mat <- cpm(dge) 
+otutab_soil_tmm <- as.data.frame(otutab_tmm_mat)
+# rhizo
+dge <- DGEList(counts = otutab_rhizo_raw) 
+dge <- calcNormFactors(dge) 
+otutab_tmm_mat <- cpm(dge) 
+otutab_rhizo_tmm <- as.data.frame(otutab_tmm_mat)
+# root
+dge <- DGEList(counts = otutab_root_raw) 
+dge <- calcNormFactors(dge) 
+otutab_tmm_mat <- cpm(dge) 
+otutab_root_tmm <- as.data.frame(otutab_tmm_mat)
+```
+
+# align metadata (since the phyloseq object won't reformat)
+
+```{r}
+# full
+meta_raw <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_raw))
+# soil
+meta_soil_raw <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_soil_raw))
+# rhizo
+meta_rhizo_raw <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_rhizo_raw))
+# root
+meta_root_raw <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_root_raw))
+
+# full
+meta_rare <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_rare))
+# soil
+meta_soil_rare <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_soil_rare))
+# rhizo
+meta_rhizo_rare <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_rhizo_rare))
+# root
+meta_root_rare <- meta %>%
+  filter(row.names(meta) %in% colnames(otutab_root_rare))
+```
+
+
+# Write files
+
+```{r}
+# set working directory for chunk
+setwd("otu_tables/")
+#####
+# raw
+# full
+write.table(otutab_raw, "tab_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_raw, "tax_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_raw, "meta_full_16S.txt", col.names = TRUE, sep = '\t')
+# soil
+write.table(otutab_soil_raw, "tab_soil_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_soil_raw, "tax_soil_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_soil_raw, "meta_soil_full_16S.txt", col.names = TRUE, sep = '\t')
+# rhizo
+write.table(otutab_rhizo_raw, "tab_rhizo_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_rhizo_raw, "tax_rhizo_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_rhizo_raw, "meta_rhizo_full_16S.txt", col.names = TRUE, sep = '\t')
+# root
+write.table(otutab_root_raw, "tab_root_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_root_raw, "tax_root_raw_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_root_raw, "meta_root_full_16S.txt", col.names = TRUE, sep = '\t')
+
+# rare
+# full
+write.table(otutab_rare, "tab_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_rare, "tax_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_rare, "meta_rare_16S.txt", col.names = TRUE, sep = '\t')
+# soil
+write.table(otutab_soil_rare, "tab_soil_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_soil_rare, "tax_soil_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_soil_rare, "meta_soil_rare_16S.txt", col.names = TRUE, sep = '\t')
+# rhizo
+write.table(otutab_rhizo_rare, "tab_rhizo_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_rhizo_rare, "tax_rhizo_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_rhizo_rare, "meta_rhizo_rare_16S.txt", col.names = TRUE, sep = '\t')
+# root
+write.table(otutab_root_rare, "tab_root_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(tax_root_rare, "tax_root_rare_16S.txt", col.names = TRUE, sep = '\t')
+write.table(meta_root_rare, "meta_root_rare_16S.txt", col.names = TRUE, sep = '\t')
+
+# tmm
+write.table(otutab_tmm, "tab_tmm_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_soil_tmm, "tab_soil_tmm_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_rhizo_tmm, "tab_rhizo_tmm_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_root_tmm, "tab_root_tmm_16S.txt", col.names = TRUE, sep = '\t')
+
+# tss
+write.table(otutab_tss, "tab_tss_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_soil_tss, "tab_soil_tss_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_rhizo_tss, "tab_rhizo_tss_16S.txt", col.names = TRUE, sep = '\t')
+write.table(otutab_root_tss, "tab_root_tss_16S.txt", col.names = TRUE, sep = '\t')
+```
+
+
