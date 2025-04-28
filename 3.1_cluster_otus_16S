@@ -27,6 +27,8 @@ library(Biostrings)
 
 ```{r}
 t_seqtab_tax <- read.table("o16S_asvtab.txt", header = TRUE, sep = "\t")
+taxa_original <- t_seqtab_tax %>%
+  select(-(2:(ncol(t_seqtab_tax)-7)))
 ```
 
 # Assign terms
@@ -81,8 +83,9 @@ merged_seqtab <- seqtab %>%
   as("matrix") 
 
 # Align taxonomy to clusters
-tax <- taxa_original %>%
-  as_tibble(rownames = "sequence") %>%
+tax <- taxa_original %>% 
+  as_tibble() %>%
+  rename("sequence" = "Row.names") %>%
   inner_join(clusters) %>%
   select(-sequence)
 
@@ -119,7 +122,6 @@ otu_tab <- otu_tab %>%
   rename_with(~ str_remove(., "_16S"))
 
 # find host reads
-class(otutab_tax$Kingdom)
 test <- otutab_tax %>%
   filter_if(
     is.character,
