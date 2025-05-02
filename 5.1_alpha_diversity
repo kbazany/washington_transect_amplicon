@@ -40,6 +40,609 @@ meta <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
 term <- "_16S"
 ```
 
+# Calculate alpha diversity
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+head(tab)
+head(ttab)
+head(meta)
+head(tax)
+
+# extract sample ID
+meta_1 <- meta %>%
+  rownames_to_column(var = "sample_id")
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id")
+# combine meta and ttab
+meta_tab <- meta_1 %>%
+  inner_join(ttab_1)
+
+# calc shan
+shan <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "shannon")
+# combine
+alpha_df <- cbind(meta_tab, shan)
+
+# calc simpson
+simpson <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
+# combine
+alpha_df <- cbind(alpha_df, simpson)
+```
+
+
+
+# trying hill numbers
+
+```{r}
+hill_numbers <- vegan::hill(ttab, q = c(0, 1, 2))
+```
+
+# trying directly in physeq
+
+```{r}
+# load into phyloseq
+physeq <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+plot_richness(physeq, measures=c("Chao1", "Shannon"), x="climate", color="niche")
+```
+
+# ANOVAs for categorical variables
+
+```{r}
+# run glms
+shan_glm <- glm(shan ~ climate + niche + climate:niche, data = alpha_df)
+# run anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F")
+shan_anova
+
+# run glms
+simp_glm <- glm(simpson ~ climate + niche + climate:niche, data = alpha_df)
+# run anova
+simp_anova <- car::Anova(simp_glm, test.statistic = "F")
+simp_anova
+
+# save anovas
+shan_anova_16S <- tidy(shan_anova)
+simp_anova_16S <- tidy(simp_anova)
+```
+
+# Tukey HSD
+
+```{r}
+# Tukey HSD
+hsd_climate_shan <- HSD.test(aov(shan ~ climate, data = alpha_df), "climate", group = T)
+hsd_niche_shan <- HSD.test(aov(shan ~ niche, data = alpha_df), "niche", group = T)
+hsd_climate_simp <- HSD.test(aov(simpson ~ climate, data = alpha_df), "climate", group = T)
+hsd_niche_simp <- HSD.test(aov(simpson ~ niche, data = alpha_df), "niche", group = T)
+
+hsd_climate_shan_16S <- hsd_climate_shan$groups
+hsd_niche_shan_16S <- hsd_niche_shan$groups
+hsd_climate_simp_16S <- hsd_climate_simp$groups
+hsd_niche_simp_16S <- hsd_niche_simp$groups
+
+hsd_climate_shan_16S
+hsd_niche_shan_16S
+hsd_climate_simp_16S
+hsd_niche_simp_16S
+```
+
+# Correlation Tests
+
+```{r}
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_cor_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_cor_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$altitude)
+elev_shan_cor_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_cor_16S_tab
+```
+
+# Niche and Climate boxplot
+
+```{r}
+# reorder
+alpha_df_reor <- alpha_df
+alpha_df_reor$niche <- factor(alpha_df_reor$niche, levels = c("soil", "rhizo", "roots"))
+# reorder site
+alpha_df_reor$climate <- factor(alpha_df_reor$climate, levels = c("wet", "high", "dry"))
+# shan boxplot
+shan_box_16S <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = shan)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Climate Class") + ylab("16S Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+shan_box_16S
+
+# simpson boxplot
+simp_box_16S <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = simpson)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Climate Class") + ylab("16S Simpson Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+simp_box_16S
+```
+
+# Site boxplot
+
+```{r}
+# reorder
+alpha_df_reor$site <- factor(alpha_df_reor$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# shan boxplot
+shan_site_box_16S <- ggplot(alpha_df_reor, aes(x = site, color = niche, y = shan)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Site") + ylab("16S Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+shan_site_box_16S
+```
+
+
+# Climate Variable linegraphs
+
+```{r}
+# decade precipitation plot
+dec_prec_shan_16S <- ggplot(alpha_df_reor, aes(x = `decade_ave_prcp..mm.day.`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("16S Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_shan_16S
+
+# decade max temp
+dec_tmax_shan_16S <- ggplot(alpha_df_reor, aes(x = `decade_ave_tmax..deg.c.`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Average Max Temperature (C)") + ylab("16S Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_tmax_shan_16S
+
+# elevation plot
+elev_shan_16S <- ggplot(alpha_df_reor, aes(x = altitude, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Elevation (m)") + ylab("16S Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+elev_shan_16S
+```
+
+# Soil factor linegraph
+
+```{r}
+soil_alpha_df <- alpha_df_reor %>%
+  filter(!(site %in% c("CR1.5", "TR2.5", "TR3.5")))
+# decade precipitation plot
+ph_shan_16S <- ggplot(soil_alpha_df, aes(x = `pH.2`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("pH") + ylab("16S Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+ph_shan_16S
+```
+
+
+# Load files (ITS)
+
+```{r}
+tab <- read.table("asv_tables/tab_rare_ITS.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_ITS.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_ITS.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_ITS"
+```
+
+# Calculate alpha diversity
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+head(tab)
+head(ttab)
+head(meta)
+head(tax)
+
+# extract sample ID
+meta_1 <- meta %>%
+  rownames_to_column(var = "sample_id")
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id")
+# combine meta and ttab
+meta_tab <- meta_1 %>%
+  inner_join(ttab_1)
+
+# calc shan
+shan <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "shannon")
+# combine
+alpha_df <- cbind(meta_tab, shan)
+
+# calc simpson
+simp <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
+# combine
+alpha_df <- cbind(alpha_df, simpson)
+```
+
+# ANOVAs for categorical variables
+
+```{r}
+# set wd within chunk
+setwd("results/alpha_results/")
+# run glms
+shan_glm <- glm(shan ~ climate + niche + climate:niche, data = alpha_df)
+# run anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F")
+shan_anova
+
+# run glms
+simp_glm <- glm(simp ~ climate + niche + climate:niche, data = alpha_df)
+# run anova
+simp_anova <- car::Anova(simp_glm, test.statistic = "F")
+simp_anova
+
+# save anovas
+shan_anova_ITS <- tidy(shan_anova)
+simp_anova_ITS <- tidy(simp_anova)
+```
+
+# Tukey HSD
+
+```{r}
+# set path
+setwd("results/alpha_results/")
+# Tukey HSD
+hsd_climate_shan <- HSD.test(aov(shan ~ climate, data = alpha_df), "climate", group = T)
+hsd_niche_shan <- HSD.test(aov(shan ~ niche, data = alpha_df), "niche", group = T)
+hsd_climate_simp <- HSD.test(aov(simp ~ climate, data = alpha_df), "climate", group = T)
+hsd_niche_simp <- HSD.test(aov(simp ~ niche, data = alpha_df), "niche", group = T)
+
+hsd_climate_shan_ITS <- hsd_climate_shan$groups
+hsd_niche_shan_ITS <- hsd_niche_shan$groups
+hsd_climate_simp_ITS <- hsd_climate_simp$groups
+hsd_niche_simp_ITS <- hsd_niche_simp$groups
+
+hsd_climate_shan_ITS
+hsd_niche_shan_ITS
+hsd_climate_simp_ITS
+hsd_niche_simp_ITS
+```
+
+# Correlation Tests
+
+```{r}
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_cor_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_cor_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$altitude)
+elev_shan_cor_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_cor_ITS_tab
+```
+
+# Niche and Climate boxplot
+
+```{r}
+# reorder
+alpha_df_reor <- alpha_df
+alpha_df_reor$niche <- factor(alpha_df_reor$niche, levels = c("soil", "rhizo", "roots"))
+# reorder site
+alpha_df_reor$climate <- factor(alpha_df_reor$climate, levels = c("wet", "high", "dry"))
+# shan boxplot
+shan_box_ITS <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = shan)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Climate Class") + ylab("ITS Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+shan_box_ITS
+
+# simpson boxplot
+simp_box_ITS <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = simp)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Climate Class") + ylab("ITS Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+simp_box_ITS
+```
+
+# Site boxplot
+
+```{r}
+# reorder
+alpha_df_reor$site <- factor(alpha_df_reor$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# shan boxplot
+shan_site_box_ITS <- ggplot(alpha_df_reor, aes(x = site, color = niche, y = shan)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  xlab("Site") + ylab("ITS Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+shan_site_box_ITS
+```
+
+
+# Climate Variable linegraphs
+
+```{r}
+# decade precipitation plot
+dec_prec_shan_ITS <- ggplot(alpha_df_reor, aes(x = `decade_ave_prcp..mm.day.`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("ITS Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_shan_ITS
+
+# decade max temp
+dec_tmax_shan_ITS <- ggplot(alpha_df_reor, aes(x = `decade_ave_tmax..deg.c.`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Average Max Temperature (C)") + ylab("ITS Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_tmax_shan_ITS
+
+# elevation plot
+elev_shan_ITS <- ggplot(alpha_df_reor, aes(x = altitude, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Elevation (m)") + ylab("ITS Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+elev_shan_ITS
+```
+
+## Synthesize and save plots
+
+# site boxplot
+
+```{r}
+# set path
+setwd("results/alpha_results/")
+# arrange
+full_plot <- ggarrange(shan_site_box_16S, shan_site_box_ITS, 
+                       nrow = 2, common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave("shan_site_box.png", width = 10, height = 6)
+```
+
+# climate boxplot
+
+```{r}
+# set path
+setwd("results/alpha_results/")
+# arrange
+full_plot <- ggarrange(shan_box_16S, shan_box_ITS, 
+                       nrow = 2, common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave("shan_box.png", width = 4, height = 6)
+```
+
+# daymet linegraphs
+
+```{r}
+# set path
+setwd("results/alpha_results/")
+# all together
+full_plot <- ggarrange(dec_prec_shan_16S, dec_tmax_shan_16S, elev_shan_16S,
+                       dec_prec_shan_ITS, dec_tmax_shan_ITS, elev_shan_ITS, 
+                       nrow = 2, ncol = 3, common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave("shannon_daymet_full.png", width = 25, height = 10)
+```
+
+# ANOVAs
+
+```{r}
+
+```
+
+# correlation analysis
+
+```{r}
+
+```
+
+# HSD
+
+```{r}
+
+```
+
+
+
+
+# testing raw asv tables
+
+```{r}
+# set working directory
+setwd("asv_tables")
+# load tables
+tab <- read.table("tab_raw_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("tax_raw_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("meta_full_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+```
+
+
+---
+title: "alpha_diversity"
+output: html_document
+date: "2025-04-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install Packages
+
+install.packages("tidyverse")
+install.packages("vegan")
+install.packages("car")
+install.packages("agricolae")
+install.packages("broom")
+install.packages("knitr")
+install.packages("ggpubr")
+
+# Load Packages
+
+```{r}
+library(tidyverse)
+library(vegan)
+library(car)
+library(agricolae)
+library(broom)
+library(knitr)
+library(ggpubr)
+```
+
+# Load files (starting with 16S)
+
+```{r}
+tab <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+```
+
 (also checked alpha diversity with raw asv tables and tss normalized which gave 
 the same results, and tmm normalization which flattened the curves considerably.)
 
@@ -505,24 +1108,6 @@ full_plot <- ggarrange(dec_prec_shan_16S, dec_tmax_shan_16S, elev_shan_16S,
 full_plot
 # save full plot
 ggsave("shannon_daymet_full.png", width = 25, height = 10)
-```
-
-# ANOVAs
-
-```{r}
-
-```
-
-# correlation analysis
-
-```{r}
-
-```
-
-# HSD
-
-```{r}
-
 ```
 
 
