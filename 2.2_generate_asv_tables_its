@@ -119,15 +119,27 @@ https://unite.ut.ee/repository.php
 taxa <- assignTaxonomy(seqtab_nochim, 
                           "sh_general_release_dynamic_04.04.2024_dev.fasta", 
                           multithread = TRUE, minBoot = 80) # long
+```
 
-# Converting the taxonomy assignments to data frame so we can filter the taxonomic assignments.
-taxa_original <- as.data.frame(taxa)
+# Filter ASVs to remove host associated reads and reads with not enough information
 
-# Filtering out ASVs not assigned to a phyla
-taxa_no_na <- taxa_original[-(which(is.na(taxa_original$Phylum))),]
+```{r}
+# simplified host filtering
+filtered_taxa <- taxa %>%
+  as.data.frame() %>%
+  filter(!is.na(Kingdom)) %>%
+  filter(Kingdom == "k__Fungi") %>%
+  filter(!is.na(Phylum)) # leaving this in for now, might take out later
 
-# skipping host filtering because there shouldn't be host reads aligning in the fungal database
-taxa_nohost <- taxa_no_na
+dim(taxa)
+dim(filtered_taxa)
+
+# print host reads to check
+host_taxa <- taxa %>%
+  as.data.frame() %>%
+  anti_join(filtered_taxa)
+dim(host_taxa) # filtered out 2483 fungi of unknown phylum
+#### scan through host_taxa output and adjust criteria if there are microbial reads you want to keep
 ```
 
 ## Taxonomy Merging and ASV Filtering
@@ -151,7 +163,7 @@ nrow(t_seqtab_filt)
 sum(t_seqtab_filt)
 
 # Merging taxonomy information into ASV table
-t_seqtab_tax <- merge(t_seqtab_filt, taxa_nohost, by = "row.names")
+t_seqtab_tax <- merge(t_seqtab_filt, filtered_taxa, by = "row.names")
 
 #  Creating ASV labels and make these new row names.
 #####
