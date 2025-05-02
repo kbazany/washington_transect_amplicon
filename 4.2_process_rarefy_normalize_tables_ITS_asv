@@ -50,9 +50,9 @@ row.names(meta) <- meta$sample_id
 meta <- meta[,-1]
 ```
 
-# Filter out low occupancy OTUs
+# Filter out low occupancy OTUs (skipping this step)
 
-```{r}
+#```{r}
 # total OTUs (change to fit dimensions of OTU table)
 otutotals <- mutate(.data = otutabtax, otutotal = rowSums(otutabtax[sapply(otutabtax, is.numeric)]))
 # identify rare OTUs (change based on data type and number of samples)
@@ -64,7 +64,7 @@ dim(otunotrare) # check new dimensions to see how much is cut
 # cut rare column
 otutabtax_filt <- otunotrare[ , 1:ncol(otutabtax)]
 otutabtax <- otutabtax_filt
-```
+#```
 
 # Checking the files
 
@@ -92,6 +92,8 @@ tax <- otutabtax[,(length(otutabtax)-6):length(otutabtax)]
 # Check metadata and otutab alignment
 
 ```{r}
+# make transposed otutab
+totutab <- as.data.frame(t(otutab))
 # run to find samples that don't match in the metadata and otutab
 test1 <- totutab %>%
   rownames_to_column("sample")
@@ -101,12 +103,13 @@ no_match <- anti_join(test1, test2)
 dim(test1)
 dim(test2)
 dim(no_match)
-View(no_match)
+View(no_match) # ITS had no mismatches remaining to remove
 ```
 
 # Remove from otutab and totutab if they are blanks or not part of the experiment
+## taking out for now, not necessary
 
-```{r}
+#```{r}
 # Remove rows containing "NTC" or "blank"
 # can adjust for other data signifiers
 totutab <- totutab[!(grepl("NTC", rownames(totutab)) | grepl("blank", rownames(totutab))), ]
@@ -117,7 +120,7 @@ otutabtax <- otutabtax %>%
 otutab <- otutab %>% 
   select(-contains("NTC")) %>%
   select(-contains("blank"))
-```
+#```
 
 
 # Subsetting by niche
@@ -208,6 +211,9 @@ write.table(totutab_sample_counts,
 # Create Phyloseq Object
 
 ```{r}
+# rerotate otutable
+otutab <- t(totutab)
+# create phyloseq object
 physeq <- phyloseq(
   otu_table(otutab, taxa_are_rows = T),
   tax_table(as.matrix(tax)),
@@ -223,29 +229,30 @@ physeq_rhizo <- subset_samples(physeq, niche == "rhizo")
 physeq_root <- subset_samples(physeq, niche == "roots")
 
 # add occupancy filter
-physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
-physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
-physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
-physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+## cutting for now
+# physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
+# physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
+# physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
+# physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
 
 # check reads per sample
-sort(sample_sums(physeq_soil))
-sort(sample_sums(physeq_rhizo))
-sort(sample_sums(physeq_root))
-sort(sample_sums(physeq))
+sort(sample_sums(physeq)) # CR3_146_rhizo 10396, second lowest 23736
+sort(sample_sums(physeq_soil)) # CR1.5_1708_soil 23736, second lowest 35491
+sort(sample_sums(physeq_rhizo)) # CR3_146_rhizo 10963, second lowest 30208
+sort(sample_sums(physeq_root)) # lowest 23919
 
 # rarefy each sample type separately
 ## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
-physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=32000, physeq_soil) %>%
-  rarefy_even_depth(rngseed = 555)
-physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=22590, physeq_rhizo) %>%
-  rarefy_even_depth(rngseed = 555)
-physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=15000, physeq_root) %>%
-  rarefy_even_depth(rngseed = 555)
-
 # rarefy the whole set when looking at all the compartments together
-physeq_rare <-prune_samples(sample_sums(physeq)>=18000, physeq) %>%
-  rarefy_even_depth(rngseed = 555) 
+physeq_rare <-prune_samples(sample_sums(physeq)>=23000, physeq) %>%
+  rarefy_even_depth(rngseed = 555) # 376 OTUs were removed because they are no longer present in any sample after random subsampling
+
+physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=32000, physeq_soil) %>%
+  rarefy_even_depth(rngseed = 555) # 1806 OTUs were removed because they are no longer present in any sample after random subsampling
+physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=22590, physeq_rhizo) %>%
+  rarefy_even_depth(rngseed = 555) # 2004 OTUs were removed because they are no longer present in any sample after random subsampling
+physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=15000, physeq_root) %>%
+  rarefy_even_depth(rngseed = 555) # 6796 OTUs were removed because they are no longer present in any sample after random subsampling
 
 # check tables
 head(sample_sums(physeq))
@@ -298,6 +305,21 @@ tax_root_rare <- as.data.frame(physeq_root_rare@tax_table)
 meta_root_rare <- as.data.frame(physeq_root_rare@sam_data)
 ```
 
+# check dimensions of the raw and rare files
+
+```{r}
+dim(otutab_raw)
+dim(otutab_rare)
+
+dim(otutab_soil_raw)
+dim(otutab_soil_rare)
+
+dim(otutab_rhizo_raw)
+dim(otutab_rhizo_rare)
+
+dim(otutab_root_raw)
+dim(otutab_root_rare)
+```
 
 # perform TSS normalization
 
@@ -317,7 +339,6 @@ otutab_rhizo_tss <- tab_1/(rowSums(tab_1))
 tab_1 <- otutab_root_raw + 1
 otutab_root_tss <- tab_1/(rowSums(tab_1))
 ```
-
 
 # perform TMM normalization
 
@@ -374,7 +395,6 @@ meta_rhizo_rare <- meta %>%
 meta_root_rare <- meta %>%
   filter(row.names(meta) %in% colnames(otutab_root_rare))
 ```
-
 
 # Write files
 
