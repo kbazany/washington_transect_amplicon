@@ -61,7 +61,7 @@ soil_rhizo_seqtab <- read.table("soil_rhizo_seqtab_16S_asv.txt", header = TRUE,
 root_seqtab <- read.table("root_seqtab_16S_asv.txt", header = TRUE, 
                           sep = '\t', na.strings = ".") #long
 
-# save as matrix
+# as matrix
 soil_rhizo_seqtab_m <- as.matrix(soil_rhizo_seqtab)
 root_seqtab_m <- as.matrix(root_seqtab)
 ```
@@ -75,6 +75,7 @@ merged_seqtab <- mergeSequenceTables(soil_rhizo_seqtab_m, root_seqtab_m)
 dim(soil_rhizo_seqtab_m)
 dim(root_seqtab_m)
 dim(merged_seqtab)
+sum(ncol(soil_rhizo_seqtab_m), ncol(root_seqtab_m))
 
 # writing to the data folder
 ####### 
@@ -89,7 +90,10 @@ write.table(merged_seqtab, "merged_seqtab_16S_asv.txt", sep = "\t")
 seqtab_nochim <- removeBimeraDenovo(merged_seqtab, 
                                          method = "consensus",  
                                          multithread = TRUE, 
-                                         verbose = TRUE)
+                                         verbose = TRUE) # long
+
+dim(merged_seqtab)
+dim(seqtab_nochim)
 
 # Number of ASVs in the table:
 ncol(seqtab_nochim)
@@ -119,26 +123,36 @@ https://benjjneb.github.io/dada2/training.html
 taxa <- assignTaxonomy(seqtab_nochim, 
                           "silva_nr99_v138.2_toSpecies_trainset.fa.gz", 
                           multithread = TRUE, minBoot = 80) # long
+dim(taxa)
+dim(seqtab_nochim)
 
-# Converting the taxonomy assignments to data frame so we can filter the taxonomic assignments.
-taxa_original <- as.data.frame(taxa)
-
-# Filtering out ASVs not assigned to a phyla
-taxa_no_na <- taxa_original[-(which(is.na(taxa_original$Phylum))),]
-
-# Filtering out ASVs not assigned to bacteria or archaea
-taxa_bac <- taxa_no_na[grep("Bacteria|Archaea", taxa_no_na$Kingdom),]
-
-# Filtering out ASVs assigned to a chloroplast
-taxa_nochl <- taxa_bac[grep("Chloroplast", taxa_bac$Order, invert = TRUE),]
-
-# Filtering out ASVs assigned to a mitochondria
-taxa_nohost <- taxa_nochl[grep("Mitochondria", taxa_nochl$Family, invert = TRUE),]
-
+#### write full taxa:
+write.table(taxa, "o16S_full_taxa.txt", 
+            row.names = TRUE, col.names = TRUE, sep = '\t')
 ```
 
-## Taxonomy Merging and ASV Filtering
-The last step is to filter the ASV abundance table by merging the ASV table with the taxonomy assignments. This will remove ASVs from the count table that were not assigned to a fungal phyla or were identified as nematodes or plant sequences. 
+# Filter ASVs to remove host associated reads and reads with not enough information
+
+```{r}
+# simplified host filtering
+filtered_taxa <- taxa %>%
+  as.data.frame() %>%
+  filter(!is.na(Kingdom)) %>%
+  filter(!is.na(Phylum)) %>% # leaving this in for now, might take out later
+  filter(!if_any(everything(), ~ grepl("eukaryota|chloropl|mitoch|ricket", ., ignore.case = TRUE)))
+
+dim(taxa)
+dim(filtered_taxa)
+
+# print host reads to check
+host_taxa <- taxa %>%
+  as.data.frame() %>%
+  anti_join(filtered_taxa)
+dim(host_taxa)
+#### scan through host_taxa output and adjust criteria if there are microbial reads you want to keep
+```
+
+## Taxonomy Merging
 
 ```{r}
 # Transposing the ASV table so that taxonomy can be added. 
@@ -147,18 +161,22 @@ t_seqtab_nochim <- t(seqtab_nochim)
 # Merging the two tables together based on row name. 
 t_seqtab_filt <- 
   t_seqtab_nochim[row.names(t_seqtab_nochim)%in%row.names(
-    taxa_nohost),]
+    filtered_taxa),]
+
+dim(t_seqtab_nochim)
+dim(t_seqtab_filt)
+dim(filtered_taxa)
 
 #####
-# Change the sub for different amplicons
-colnames(t_seqtab_filt) <- sub("16S_S[0-9].*", "16S", colnames(t_seqtab_nochim))
+# Change the sub for different amplicons, change so that they match the metadata
+colnames(t_seqtab_filt) <- sub("_16S_S[0-9].*", "", colnames(t_seqtab_nochim))
 
 # Number of ASVs & number of sequences post-filtering
-nrow(t_seqtab_filt)
-sum(t_seqtab_filt)
+nrow(t_seqtab_filt) # ASVs
+sum(t_seqtab_filt) # total reads
 
 # Merging taxonomy information into ASV table
-t_seqtab_tax <- merge(t_seqtab_filt, taxa_nohost, by = "row.names")
+t_seqtab_tax <- merge(t_seqtab_filt, filtered_taxa, by = "row.names")
 
 #  Creating ASV labels and make these new row names.
 #####
@@ -184,4 +202,5 @@ write.table(t_seqtab_tax, "o16S_asvtab.csv",
 write.table(t_seqtab_tax, "o16S_asvtab.txt", 
             row.names = TRUE, col.names = TRUE, sep = '\t')
 ```
+
 
