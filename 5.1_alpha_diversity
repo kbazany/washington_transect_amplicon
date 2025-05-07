@@ -28,6 +28,9 @@ library(agricolae)
 library(broom)
 library(knitr)
 library(ggpubr)
+library(flextable)
+library(officer)
+library(kableExtra)
 ```
 
 # Load files (starting with 16S)
@@ -66,20 +69,13 @@ shan <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "shan
 alpha_df <- cbind(meta_tab, shan)
 
 # calc simpson
-simpson <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
+simp <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
 # combine
-alpha_df <- cbind(alpha_df, simpson)
+alpha_df <- cbind(alpha_df, simp)
 ```
 
 
-
-# trying hill numbers
-
-```{r}
-hill_numbers <- vegan::hill(ttab, q = c(0, 1, 2))
-```
-
-# trying directly in physeq
+# showing in physeq
 
 ```{r}
 # load into phyloseq
@@ -92,6 +88,8 @@ plot_richness(physeq, measures=c("Chao1", "Shannon"), x="climate", color="niche"
 
 # ANOVAs for categorical variables
 
+Climate and niche
+
 ```{r}
 # run glms
 shan_glm <- glm(shan ~ climate + niche + climate:niche, data = alpha_df)
@@ -100,7 +98,7 @@ shan_anova <- car::Anova(shan_glm, test.statistic = "F")
 shan_anova
 
 # run glms
-simp_glm <- glm(simpson ~ climate + niche + climate:niche, data = alpha_df)
+simp_glm <- glm(simp ~ climate + niche + climate:niche, data = alpha_df)
 # run anova
 simp_anova <- car::Anova(simp_glm, test.statistic = "F")
 simp_anova
@@ -110,14 +108,34 @@ shan_anova_16S <- tidy(shan_anova)
 simp_anova_16S <- tidy(simp_anova)
 ```
 
+Site and Niche
+
+```{r}
+# run glms
+shan_glm <- glm(shan ~ site + niche + site:niche, data = alpha_df)
+# run anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F")
+shan_anova
+
+# run glms
+simp_glm <- glm(simp ~ site + niche + site:niche, data = alpha_df)
+# run anova
+simp_anova <- car::Anova(simp_glm, test.statistic = "F")
+simp_anova
+
+# save anovas
+shan_anova_site_16S <- tidy(shan_anova)
+simp_anova_site_16S <- tidy(simp_anova)
+```
+
 # Tukey HSD
 
 ```{r}
 # Tukey HSD
 hsd_climate_shan <- HSD.test(aov(shan ~ climate, data = alpha_df), "climate", group = T)
 hsd_niche_shan <- HSD.test(aov(shan ~ niche, data = alpha_df), "niche", group = T)
-hsd_climate_simp <- HSD.test(aov(simpson ~ climate, data = alpha_df), "climate", group = T)
-hsd_niche_simp <- HSD.test(aov(simpson ~ niche, data = alpha_df), "niche", group = T)
+hsd_climate_simp <- HSD.test(aov(simp ~ climate, data = alpha_df), "climate", group = T)
+hsd_niche_simp <- HSD.test(aov(simp ~ niche, data = alpha_df), "niche", group = T)
 
 hsd_climate_shan_16S <- hsd_climate_shan$groups
 hsd_niche_shan_16S <- hsd_niche_shan$groups
@@ -133,6 +151,49 @@ hsd_niche_simp_16S
 # Correlation Tests
 
 ```{r}
+# test normality 
+## shan
+hist(alpha_df$shan)
+shapiro.test(alpha_df$shan)
+qqnorm(alpha_df$shan)
+## precip
+hist(alpha_df$decade_ave_prcp..mm.day.)
+shapiro.test(alpha_df$decade_ave_prcp..mm.day.)
+qqnorm(alpha_df$decade_ave_prcp..mm.day.)
+## temp
+hist(alpha_df$decade_ave_tmax..deg.c.)
+shapiro.test(alpha_df$decade_ave_tmax..deg.c.)
+qqnorm(alpha_df$decade_ave_tmax..deg.c.)
+## elevation
+hist(alpha_df$altitude)
+shapiro.test(alpha_df$altitude)
+qqnorm(alpha_df$altitude)
+### non-normal distribution (because roots much lower than soil, so ~bimodal)
+#Split by niche
+alpha_df_soil <- alpha_df %>%
+  filter(niche == "soil")
+alpha_df_rhizo <- alpha_df %>%
+  filter(niche == "rhizo")
+alpha_df_root <- alpha_df %>%
+  filter(niche == "roots")
+# retest by niche (pearson probably ok for the niche separated ones)
+## soil # not normal but better, some gaps
+hist(alpha_df_soil$shan)
+shapiro.test(alpha_df_soil$shan) 
+qqnorm(alpha_df_soil$shan)
+## rhizo # not normal, right skewed
+hist(alpha_df_rhizo$shan)
+shapiro.test(alpha_df_rhizo$shan) 
+qqnorm(alpha_df_rhizo$shan)
+## root # normal!
+hist(alpha_df_root$shan)
+shapiro.test(alpha_df_root$shan) 
+qqnorm(alpha_df_root$shan)
+```
+
+Run correlation tests
+```{r}
+## whole data set pearson
 # with precip
 precip_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`)
 precip_shan_cor_16S_tab <- tidy(precip_shan_cor_16S)
@@ -146,6 +207,112 @@ tmax_shan_cor_16S_tab
 elev_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$altitude)
 elev_shan_cor_16S_tab <- tidy(elev_shan_cor_16S)
 elev_shan_cor_16S_tab
+## whole data set spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_corspear_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_corspear_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df$shan, alpha_df$altitude, method = "spearman")
+elev_shan_corspear_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_corspear_16S_tab
+## soil pearson
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_soil_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_cor_soil_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_soil_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_cor_soil_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$altitude)
+elev_shan_cor_soil_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_cor_soil_16S_tab
+## soil spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_soil_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_corspear_soil_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_soil_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_corspear_soil_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_soil$shan, alpha_df_soil$altitude, method = "spearman")
+elev_shan_corspear_soil_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_corspear_soil_16S_tab
+## rhizo pearson
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_rhizo_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_cor_rhizo_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_rhizo_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_cor_rhizo_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$altitude)
+elev_shan_cor_rhizo_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_cor_rhizo_16S_tab
+## rhizo spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_rhizo_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_corspear_rhizo_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_rhizo_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_corspear_rhizo_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$altitude, method = "spearman")
+elev_shan_corspear_rhizo_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_corspear_rhizo_16S_tab
+## root pearson
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_root_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_cor_root_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_root_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_cor_root_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$altitude)
+elev_shan_cor_root_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_cor_root_16S_tab
+## root spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_root_16S_tab <- tidy(precip_shan_cor_16S)
+precip_shan_corspear_root_16S_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_root_16S_tab <- tidy(tmax_shan_cor_16S)
+tmax_shan_corspear_root_16S_tab
+# with elevation
+elev_shan_cor_16S <- cor.test(alpha_df_root$shan, alpha_df_root$altitude, method = "spearman")
+elev_shan_corspear_root_16S_tab <- tidy(elev_shan_cor_16S)
+elev_shan_corspear_root_16S_tab
 ```
 
 # Niche and Climate boxplot
@@ -173,7 +340,7 @@ shan_box_16S <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = shan))
 shan_box_16S
 
 # simpson boxplot
-simp_box_16S <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = simpson)) + 
+simp_box_16S <- ggplot(alpha_df_reor, aes(x = climate, color = niche, y = simp)) + 
   geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
   xlab("Climate Class") + ylab("16S Simpson Diversity") + 
@@ -296,7 +463,7 @@ ph_shan_16S <- ggplot(soil_alpha_df, aes(x = `pH.2`, color = niche,
 ph_shan_16S
 ```
 
-
+###################
 # Load files (ITS)
 
 ```{r}
@@ -335,10 +502,12 @@ alpha_df <- cbind(meta_tab, shan)
 # calc simpson
 simp <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
 # combine
-alpha_df <- cbind(alpha_df, simpson)
+alpha_df <- cbind(alpha_df, simp)
 ```
 
 # ANOVAs for categorical variables
+
+Climate and Niche
 
 ```{r}
 # set wd within chunk
@@ -358,6 +527,26 @@ simp_anova
 # save anovas
 shan_anova_ITS <- tidy(shan_anova)
 simp_anova_ITS <- tidy(simp_anova)
+```
+
+Site and Niche
+
+```{r}
+# run glms
+shan_glm <- glm(shan ~ site + niche + site:niche, data = alpha_df)
+# run anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F")
+shan_anova
+
+# run glms
+simp_glm <- glm(simp ~ site + niche + site:niche, data = alpha_df)
+# run anova
+simp_anova <- car::Anova(simp_glm, test.statistic = "F")
+simp_anova
+
+# save anovas
+shan_anova_site_ITS <- tidy(shan_anova)
+simp_anova_site_ITS <- tidy(simp_anova)
 ```
 
 # Tukey HSD
@@ -399,6 +588,174 @@ elev_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$altitude)
 elev_shan_cor_ITS_tab <- tidy(elev_shan_cor_ITS)
 elev_shan_cor_ITS_tab
 ```
+
+# Correlation Tests
+
+```{r}
+# test normality 
+## shan
+hist(alpha_df$shan)
+shapiro.test(alpha_df$shan)
+qqnorm(alpha_df$shan)
+## precip
+hist(alpha_df$decade_ave_prcp..mm.day.)
+shapiro.test(alpha_df$decade_ave_prcp..mm.day.)
+qqnorm(alpha_df$decade_ave_prcp..mm.day.)
+## temp
+hist(alpha_df$decade_ave_tmax..deg.c.)
+shapiro.test(alpha_df$decade_ave_tmax..deg.c.)
+qqnorm(alpha_df$decade_ave_tmax..deg.c.)
+## elevation
+hist(alpha_df$altitude)
+shapiro.test(alpha_df$altitude)
+qqnorm(alpha_df$altitude)
+### non-normal distribution (because roots much lower than soil, so ~bimodal)
+#Split by niche
+alpha_df_soil <- alpha_df %>%
+  filter(niche == "soil")
+alpha_df_rhizo <- alpha_df %>%
+  filter(niche == "rhizo")
+alpha_df_root <- alpha_df %>%
+  filter(niche == "roots")
+# retest by niche (pearson probably ok for the niche separated ones)
+## soil # not normal but better, some gaps
+hist(alpha_df_soil$shan)
+shapiro.test(alpha_df_soil$shan) 
+qqnorm(alpha_df_soil$shan)
+## rhizo # not normal, right skewed
+hist(alpha_df_rhizo$shan)
+shapiro.test(alpha_df_rhizo$shan) 
+qqnorm(alpha_df_rhizo$shan)
+## root # normal!
+hist(alpha_df_root$shan)
+shapiro.test(alpha_df_root$shan) 
+qqnorm(alpha_df_root$shan)
+```
+
+Run correlation tests
+```{r}
+## whole data set pearson
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_cor_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_cor_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$altitude)
+elev_shan_cor_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_cor_ITS_tab
+## whole data set spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_corspear_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_corspear_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df$shan, alpha_df$altitude, method = "spearman")
+elev_shan_corspear_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_corspear_ITS_tab
+## soil pearson
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_soil_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_cor_soil_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_soil_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_cor_soil_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$altitude)
+elev_shan_cor_soil_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_cor_soil_ITS_tab
+## soil spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_soil_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_corspear_soil_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_soil_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_corspear_soil_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_soil$shan, alpha_df_soil$altitude, method = "spearman")
+elev_shan_corspear_soil_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_corspear_soil_ITS_tab
+## rhizo pearson
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_rhizo_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_cor_rhizo_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_rhizo_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_cor_rhizo_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$altitude)
+elev_shan_cor_rhizo_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_cor_rhizo_ITS_tab
+## rhizo spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_rhizo_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_corspear_rhizo_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_rhizo_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_corspear_rhizo_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_rhizo$shan, alpha_df_rhizo$altitude, method = "spearman")
+elev_shan_corspear_rhizo_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_corspear_rhizo_ITS_tab
+## root pearson
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_prcp..mm.day.`)
+precip_shan_cor_root_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_cor_root_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_tmax..deg.c.`)
+tmax_shan_cor_root_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_cor_root_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$altitude)
+elev_shan_cor_root_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_cor_root_ITS_tab
+## root spearman
+#### spearman may not be appropriate because some of the data have the same rank (site based environmental data)
+#### I will probably just report the pearson results for the individual niches
+# with precip
+precip_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_prcp..mm.day.`, method = "spearman")
+precip_shan_corspear_root_ITS_tab <- tidy(precip_shan_cor_ITS)
+precip_shan_corspear_root_ITS_tab
+# with temp 
+# linear correlation tests
+tmax_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$`decade_ave_tmax..deg.c.`, method = "spearman")
+tmax_shan_corspear_root_ITS_tab <- tidy(tmax_shan_cor_ITS)
+tmax_shan_corspear_root_ITS_tab
+# with elevation
+elev_shan_cor_ITS <- cor.test(alpha_df_root$shan, alpha_df_root$altitude, method = "spearman")
+elev_shan_corspear_root_ITS_tab <- tidy(elev_shan_cor_ITS)
+elev_shan_corspear_root_ITS_tab
+```
+
 
 # Niche and Climate boxplot
 
@@ -566,4 +923,236 @@ full_plot
 ggsave("shannon_daymet_full.png", width = 25, height = 10)
 ```
 
+# Print tables
+
+Make a clean ANOVA table for climate and niche ANOVA
+
+```{r}
+# Combine anovas
+combined_anova <- shan_anova_16S %>% 
+  rename_with(~ paste(.x, "16S", sep = "_"), -term) %>%
+  left_join(shan_anova_ITS %>% rename_with(~ paste(.x, "ITS", sep = "_"), -term), by = "term")
+# Rearrange terms based on lowest p-value
+combined_anova <- combined_anova %>%
+  filter(!grepl("Residuals", term)) %>%
+  arrange(p.value_16S) %>%
+  bind_rows(combined_anova %>% filter(grepl("Residuals", term)))  # Re-add residuals at the bottom
+# Format p-values and rename columns
+formatted_table <- combined_anova %>%
+  mutate(p.value_16S = formatC(p.value_16S, format = "f", digits = 3)) %>%
+  mutate(sig_16S = ifelse(p.value_16S < 0.001, "***",
+    ifelse(p.value_16S < 0.01, "**",
+    ifelse(p.value_16S < 0.05, "*",
+    ifelse(p.value_16S < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS = ifelse(p.value_ITS < 0.001, "***",
+    ifelse(p.value_ITS < 0.01, "**",
+    ifelse(p.value_ITS < 0.05, "*",
+    ifelse(p.value_ITS < 0.1, ".", as.character()))))) %>%
+  mutate(sig_16S = ifelse(term == "Residuals", "", sig_16S)) %>%
+  mutate(df_16S = df_16S, df_ITS = df_ITS) %>%
+  select(term, df_16S, sumsq_16S, statistic_16S, p.value_16S, sig_16S, 
+         sumsq_ITS, statistic_ITS, p.value_ITS, sig_ITS) %>%
+  rename(df = df_16S,
+    `Sum Sq` = sumsq_16S,
+    `F-statistic` = statistic_16S,
+    `p-val` = p.value_16S,
+    ` ` = sig_16S) %>%
+  rename(`Sum Sq ` = sumsq_ITS,
+    `F-statistic ` = statistic_ITS,
+    `p-val ` = p.value_ITS,
+    `  ` = sig_ITS) %>%
+  mutate(across(where(is.numeric), ~formatC(., format = "f", digits = 3))) %>%
+  mutate(df = str_remove_all(df, '.000')) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  mutate(across(everything(), ~ str_replace_all(., "NA", "")))
+formatted_table
+
+# make printable table with flextable
+flext <- 0
+flext <- flextable(formatted_table) %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  add_header_row(colwidths = c(2, 4, 4), values = c("", "16S", "ITS")) %>%
+  align(align = "center", part = "all", j = 3:9) %>%
+  vline(j = c(2,6), part = "all") %>%
+  width(width = 0) %>%
+  autofit() # may try padding:   padding(padding = 0, part = "all")
+flext
+# save the table
+save_as_docx(flext, path = "results/alpha_results/anova_table.docx")
+save_as_image(flext, path = "results/alpha_results/anova_table.png")
+```
+
+ Make a clean ANOVA table for site and niche ANOVA
+
+```{r}
+# Combine anovas
+combined_anova <- shan_anova_site_16S %>% 
+  rename_with(~ paste(.x, "16S", sep = "_"), -term) %>%
+  left_join(shan_anova_site_ITS %>% rename_with(~ paste(.x, "ITS", sep = "_"), -term), by = "term")
+# Rearrange terms based on lowest p-value
+combined_anova <- combined_anova %>%
+  filter(!grepl("Residuals", term)) %>%
+  arrange(p.value_16S) %>%
+  bind_rows(combined_anova %>% filter(grepl("Residuals", term)))  # Re-add residuals at the bottom
+# Format p-values and rename columns
+formatted_table <- combined_anova %>%
+  mutate(p.value_16S = formatC(p.value_16S, format = "f", digits = 3)) %>%
+  mutate(sig_16S = ifelse(p.value_16S < 0.001, "***",
+    ifelse(p.value_16S < 0.01, "**",
+    ifelse(p.value_16S < 0.05, "*",
+    ifelse(p.value_16S < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS = ifelse(p.value_ITS < 0.001, "***",
+    ifelse(p.value_ITS < 0.01, "**",
+    ifelse(p.value_ITS < 0.05, "*",
+    ifelse(p.value_ITS < 0.1, ".", as.character()))))) %>%
+  mutate(sig_16S = ifelse(term == "Residuals", "", sig_16S)) %>%
+  mutate(df_16S = df_16S, df_ITS = df_ITS) %>%
+  select(term, df_16S, sumsq_16S, statistic_16S, p.value_16S, sig_16S, 
+         sumsq_ITS, statistic_ITS, p.value_ITS, sig_ITS) %>%
+  rename(df = df_16S,
+    `Sum Sq` = sumsq_16S,
+    `F-statistic` = statistic_16S,
+    `p-val` = p.value_16S,
+    ` ` = sig_16S) %>%
+  rename(`Sum Sq ` = sumsq_ITS,
+    `F-statistic ` = statistic_ITS,
+    `p-val ` = p.value_ITS,
+    `  ` = sig_ITS) %>%
+  mutate(across(where(is.numeric), ~formatC(., format = "f", digits = 3))) %>%
+  mutate(df = str_remove_all(df, '.000')) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  mutate(across(everything(), ~ str_replace_all(., "NA", "")))
+formatted_table
+
+# make printable table with flextable
+flext <- 0
+flext <- flextable(formatted_table) %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  add_header_row(colwidths = c(2, 4, 4), values = c("", "16S", "ITS")) %>%
+  align(align = "center", part = "all", j = 3:9) %>%
+  vline(j = c(2,6), part = "all") %>%
+  width(width = 0) %>%
+  autofit()
+flext
+# save the table
+save_as_docx(flext, path = "results/alpha_results/anova_site_table.docx")
+save_as_image(flext, path = "results/alpha_results/anova_site_table.png")
+```
+
+continuous variables table
+
+```{r}
+# Create a named list of your dataframes
+data_frames <- list(
+  precip_shan_cor_16S_tab = precip_shan_cor_16S_tab,
+  precip_shan_cor_ITS_tab = precip_shan_cor_ITS_tab,
+  tmax_shan_cor_16S_tab = tmax_shan_cor_16S_tab,
+  tmax_shan_cor_ITS_tab = tmax_shan_cor_ITS_tab,
+  elev_shan_cor_16S_tab = elev_shan_cor_16S_tab,
+  elev_shan_cor_ITS_tab = elev_shan_cor_ITS_tab,
+  precip_shan_cor_soil_16S_tab = precip_shan_cor_soil_16S_tab,
+  precip_shan_cor_soil_ITS_tab = precip_shan_cor_soil_ITS_tab,
+  tmax_shan_cor_soil_16S_tab = tmax_shan_cor_soil_16S_tab,
+  tmax_shan_cor_soil_ITS_tab = tmax_shan_cor_soil_ITS_tab,
+  elev_shan_cor_soil_16S_tab = elev_shan_cor_soil_16S_tab,
+  elev_shan_cor_soil_ITS_tab = elev_shan_cor_soil_ITS_tab,
+  precip_shan_cor_rhizo_16S_tab = precip_shan_cor_rhizo_16S_tab,
+  precip_shan_cor_rhizo_ITS_tab = precip_shan_cor_rhizo_ITS_tab,
+  tmax_shan_cor_rhizo_16S_tab = tmax_shan_cor_rhizo_16S_tab,
+  tmax_shan_cor_rhizo_ITS_tab = tmax_shan_cor_rhizo_ITS_tab,
+  elev_shan_cor_rhizo_16S_tab = elev_shan_cor_rhizo_16S_tab,
+  elev_shan_cor_rhizo_ITS_tab = elev_shan_cor_rhizo_ITS_tab,
+  precip_shan_cor_root_16S_tab = precip_shan_cor_root_16S_tab,
+  precip_shan_cor_root_ITS_tab = precip_shan_cor_root_ITS_tab,
+  tmax_shan_cor_root_16S_tab = tmax_shan_cor_root_16S_tab,
+  tmax_shan_cor_root_ITS_tab = tmax_shan_cor_root_ITS_tab,
+  elev_shan_cor_root_16S_tab = elev_shan_cor_root_16S_tab,
+  elev_shan_cor_root_ITS_tab = elev_shan_cor_root_ITS_tab
+)
+
+# Create a function to extract metadata from the dataframe name
+extract_metadata <- function(df_name) {
+  method <- ifelse(grepl("16S", df_name), "16S", "ITS")
+  sample <- ifelse(grepl("soil", df_name), "Soil",
+              ifelse(grepl("rhizo", df_name), "Rhizosphere", 
+                ifelse(grepl("root", df_name), "Roots", "All")))
+  variable <- ifelse(grepl("precip", df_name), "Precipitation",
+               ifelse(grepl("tmax", df_name), "Average Max Temperature", "Elevation"))
+  return(c(method, sample, variable))
+}
+
+# Combine results into a single dataframe
+combined_results <- bind_rows(
+  lapply(names(data_frames), function(df_name) {
+    df <- data_frames[[df_name]]  # Retrieve the actual data frame using its name
+    # Extract metadata
+    metadata <- extract_metadata(df_name)
+    # Check if df has required columns - replace 'statistic' and 'p.value' as necessary
+    df %>%
+      mutate(Method = metadata[1],
+             Sample = metadata[2],
+             Variable = metadata[3]) %>%
+      select(Method, Sample, Variable, statistic, p.value) # Adjust column names accordingly
+  })
+)
+
+# Modify combined dataframe
+full_cor <- combined_results %>%
+  rename(Amplicon = Method) %>%
+  rename(Niche = Sample) %>%
+  rename(r = statistic) %>%
+  rename(`p-val` = p.value) %>%
+  mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
+  mutate(r = formatC(r, format = "f", digits = 3)) %>%
+  mutate(sig = ifelse(`p-val` < 0.001, "***",
+    ifelse(`p-val` < 0.01, "**",
+    ifelse(`p-val` < 0.05, "*",
+    ifelse(`p-val` < 0.1, ".", ""))))) %>%
+  select(c(Variable, Amplicon, Niche, r, `p-val`, sig))
+# Make wide format
+full_cor_wide <- full_cor %>%
+  pivot_wider(names_from = Niche, values_from = c(r, `p-val`, sig)) %>%
+  select(Variable, Amplicon,
+    r_All, `p-val_All`, sig_All,  # First columns for 'All'
+    r_Soil, `p-val_Soil`, sig_Soil,  # then for 'Soil'
+    r_Rhizosphere, `p-val_Rhizosphere`, sig_Rhizosphere,  # for 'Rhizosphere'
+    r_Roots, `p-val_Roots`, sig_Roots) %>%
+  rename(
+    All_r = r_All,
+    `All_p-val` = `p-val_All`,
+    All_sig = sig_All,
+    Soil_r = r_Soil,
+    `Soil_p-val` = `p-val_Soil`,
+    Soil_sig = sig_Soil,
+    Rhizosphere_r = r_Rhizosphere,
+    `Rhizosphere_p-val` = `p-val_Rhizosphere`,
+    Rhizosphere_sig = sig_Rhizosphere,
+    Roots_r = r_Roots,
+    `Roots_p-val` = `p-val_Roots`,
+    Roots_sig = sig_Roots
+  )
+
+# Building the table
+ft <- flextable(full_cor_wide) %>%
+  theme_booktabs() %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header() %>%
+  align(align = "center", part = "all", j = 2:14) %>%
+  merge_v(j=1) %>%
+  vline(j = c(2,5,8,11)) %>%
+  hline(i = c(2,4,6)) %>%
+  hline(i = 1, part = "head") %>%
+  autofit()
+ft
+
+# save the table
+save_as_docx(ft, path = "results/alpha_results/pearson_corr_table.docx")
+save_as_image(ft, path = "results/alpha_results/pearson_corr_table.png")
+```
 
