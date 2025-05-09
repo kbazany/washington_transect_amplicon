@@ -200,7 +200,7 @@ for (vars in combn(names(numeric_df), 2, simplify = FALSE) ) {
                                         P.value = test$p.value))
 }
 
-cor_test_full_table_16S <- results %>%
+cor_test_full_table <- results %>%
   filter(!grepl("tree|latitude|longitude|month|year", Variable1) & 
          !grepl("tree|latitude|longitude|month|year", Variable2)) 
 
@@ -219,9 +219,9 @@ Note: There are a considerable number of correlations which may be due to climat
 # Full GLM for continuous variables
 
 ```{r}
-glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + `pH.2` + 
-                `decade_ave_prcp..mm.day.` + Fe + CN + Na + Mg + K + Tleaf + 
-                VPDleaf + Silt + P,
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + 
+                 altitude + `pH.2` + `decade_ave_prcp..mm.day.` + CN + Mg + Na +
+                 Silt + Fe + K + VPDleaf + Tleaf,
                           data = x, by = "terms")
 glm
 full_glm_16S <- tidy(glm)
@@ -272,8 +272,8 @@ plot_ordination(
 # reformat metadata for CCA to include only environmental variables from the PERMANOVA
 meta_1 <- meta %>%
   select_if(is.numeric) %>%
-  select(`decade_ave_tmax..deg.c.`, `pH.2`, `decade_ave_prcp..mm.day.`, Fe, CN, 
-         Na, Mg, K, Tleaf, VPDleaf, Silt, P) %>%
+  select(`decade_ave_tmax..deg.c.`, altitude, `pH.2`, `decade_ave_prcp..mm.day.`,
+         CN, Mg, Na, Silt, Fe, K, VPDleaf, Tleaf) %>%
   rename(Temperature = `decade_ave_tmax..deg.c.`, 
          Precipitation = `decade_ave_prcp..mm.day.`,
          pH = `pH.2`)
@@ -358,7 +358,7 @@ climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", ki
 # Save as long form objects
 site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
 niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
-climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "watershed")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
 
 # extract NMDS scores (x and y coordinates)
 data.scores = as.data.frame(scores(nmds)$sites)
@@ -424,6 +424,32 @@ nmds_plot_site_16S_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site
 nmds_plot_site_16S_full
 # save figure
 ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_16S_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
 ```
 
 
@@ -583,9 +609,9 @@ Examine the lm_full_table to determine which variables have the greatest impact 
 I changed the variables from 16S to use the ones that are most significant in ITS. These will go into the CCA plot too.
 
 ```{r}
-glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + 
-                `decade_ave_prcp..mm.day.` + Fe + `pH.2` + Na + CN + Cu + Silt +
-                 `C.y` + `N.y` + VPDleaf,
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + altitude +
+                `decade_ave_prcp..mm.day.` + Fe + Cu + `pH.2` + Na + CN + `C.y` + 
+                 Silt + `N.y` + VPDleaf,
                           data = x, by = "terms")
 glm
 full_glm_ITS <- tidy(glm)
@@ -636,8 +662,8 @@ plot_ordination(
 # reformat metadata for CCA to include only environmental variables from the PERMANOVA
 meta_1 <- meta %>%
   select_if(is.numeric) %>%
-  select(decade_ave_tmax..deg.c., decade_ave_prcp..mm.day., Fe, `pH.2`, Na, CN, 
-         Cu, Silt, `C.y`, `N.y`, VPDleaf) %>%
+  select(decade_ave_tmax..deg.c., altitude, decade_ave_prcp..mm.day., Fe, Cu, 
+         `pH.2`, Na, CN, `C.y`, Silt, `N.y`, VPDleaf) %>%
   rename(Temperature = `decade_ave_tmax..deg.c.`, 
          Precipitation = `decade_ave_prcp..mm.day.`,
          pH = `pH.2`, C = `C.y`, N = `N.y`)
@@ -722,7 +748,7 @@ climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", ki
 # Save as long form objects
 site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
 niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
-climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "watershed")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
 
 # extract NMDS scores (x and y coordinates)
 data.scores = as.data.frame(scores(nmds)$sites)
@@ -788,7 +814,1489 @@ nmds_plot_site_ITS_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site
 nmds_plot_site_ITS_full
 # save figure
 ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_16S_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
 ```
 
+
+#### Niche Specific analysis ####
+
+### 16S Soil ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_soil_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_soil_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_soil_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S_soil"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+# PERMANOVA (just the categorical variables of interest)
+
+```{r}
+# niche and site
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ site,
+                          data = x, by = "terms")
+permanova # view
+perm_site_16S_soil <- tidy(permanova) # save as dataframe
+# niche and climate
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ climate,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_climate_16S_soil <- tidy(permanova)
+```
+
+## Adonis Rank tests to inform GLM construction
+
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm1 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm2 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm3 <- tidy(lm[1,])
+
+# temp
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm4 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm5 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm6 <- tidy(lm[1,])
+
+# elevation
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ altitude,
+                          data = x, by = "terms")
+lm7 <- tidy(lm[1,])
+
+# soil
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm8 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm9 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH.2`,
+                          data = x, by = "terms")
+lm10 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm11 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm12 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm13 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `OM.3`,
+                          data = x, by = "terms")
+lm14 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm15 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm16 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm17 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm18 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm19 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm20 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm21 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm22 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm23 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm24 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm25 <- tidy(lm[1,])
+
+# tree
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm26<- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm27 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm28 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm29 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm30 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm31 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm3, lm6, lm7, lm8, lm9, lm10, lm11,
+                       lm12, lm13, lm14, lm15, lm16, lm17, lm18, lm19, lm20, 
+                       lm21, lm22, lm23, lm24, lm25, lm26, lm27, lm28, lm29, 
+                       lm30, lm31)
+lm_full_table_16S_soil <- lm_full_table %>%
+  arrange(desc(R2))
+```
+
+Examine the lm_full_table to determine which variables have the greatest impact on beta-diversity. This will be the order they appear in the GLM, however if two variables are highly correlated, the less influential of the two will be removed to avoid overfitting.
+
+
+# Full GLM for continuous variables
+
+I changed the variables from 16S to use the ones that are most significant in 16S_soil. These will go into the CCA plot too.
+
+```{r}
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + 
+                 altitude + `pH.2` + `decade_ave_prcp..mm.day.` + Na + Cu + CN + 
+                 `C.y` + Fe + Silt + VPDleaf,
+                          data = x, by = "terms")
+glm
+full_glm_16S_soil <- tidy(glm)
+```
+
+Might come back to the GLMs in general. Hard to arrange them because moving one variable can change the whole model.
+
+## Checking ordinations in phyloseq
+
+```{r}
+physeq <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+# calculate bray curtis distances for different ordination types
+## CCA
+CCA <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "CCA", 
+  distance = "bray" 
+)
+## NMDS
+NMDS <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "NMDS",
+  distance = "bray" 
+)
+
+# Plot the different ordinations
+## plot CCA
+plot_ordination(
+  physeq = physeq,
+  ordination = CCA) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+## plot NMDS
+plot_ordination(
+  physeq = physeq,
+  ordination = NMDS) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+
+```
+
+# CCA plot
+
+```{r}
+# reformat metadata for CCA to include only environmental variables from the PERMANOVA
+meta_1 <- meta %>%
+  select_if(is.numeric) %>%
+  select(`decade_ave_tmax..deg.c.`, altitude, `pH.2`, `decade_ave_prcp..mm.day.`, 
+         Na, Cu, CN, `C.y`, Fe, Silt, VPDleaf) %>%
+  rename(Temperature = `decade_ave_tmax..deg.c.`, 
+         Precipitation = `decade_ave_prcp..mm.day.`,
+         pH = `pH.2`, C = `C.y`)
+# align ttab and meta then split again to preserve order 
+ttab_meta <- merge(meta_1, ttab, by = "row.names")
+# set rownames
+rownames(ttab_meta) <- ttab_meta$Row.names
+
+# set species (asvtab) and environmental (relevant metadata) for CCA
+species_data <- ttab_meta[ ,(ncol(meta_1) + 2):ncol(ttab_meta)]
+env_data <- ttab_meta[ , 2:(ncol(meta_1) + 1)]
+
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genus from datatable v (in this case "genus" is ASV number)
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points (each sample becomes it's own point)
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = ttab_meta$Row.names
+# combine with sample data
+meta_2 <- meta %>%
+  rownames_to_column("Row.names")
+veg_4 <- inner_join(meta_2, veg_3)
+
+## Plot in ggplot
+# Relevel points by site
+veg_5 <- veg_4 %>% 
+  select(1:5, c(CCA1, CCA2)) %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+
+# make figure 
+cca_plot_16S_soil_full <- ggplot() + 
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) + 
+# veg_5 contains the data for the points aligned with the metadata for site info
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                             "#666E73","#746860","#82624D","#905C39",
+                             "#9E5626","#AC5013","#BA4A00")) + 
+  geom_segment(data = veg_1, # veg_1 contains information for the arrows
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("16S_soil CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot_16S_soil_full
+
+# save figure
+ggsave(paste0("results/beta_results/CCA_key_variables", term, ".png"), width = 6, height = 4)
+```
+
+# Make NMDS plots
+
+# NMDS
+
+```{r}
+# run nmds with bray curtis distance (need the object from CCA)
+nmds = metaMDS(decostand(species_data, method = "total"), 
+               distance = "bray", trymax = 999)
+nmds
+# plot the basic NMDS
+plot1 <- plot(nmds)
+# collect ellipses
+site_ellipses <- ordiellipse(plot1, groups = x$site, display = "sites", kind = "sd")
+niche_ellipses <- ordiellipse(plot1, groups = x$niche, display = "sites", kind = "sd")
+climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", kind = "sd")
+# Save as long form objects
+site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
+niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
+
+# extract NMDS scores (x and y coordinates)
+data.scores = as.data.frame(scores(nmds)$sites)
+# combine with metadata
+nmds_df <- data.frame(x, data.scores)
+nmds_df$asv_id <- rownames(nmds_df)
+# collect points
+points_long <- sites.long(plot1, env.data = meta)
+
+### Make Site NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+# Relevel ellipses by site
+site_ellipses_long <- site_ellipses_long %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))  %>%
+  arrange(site)
+# make figure 
+nmds_plot_site_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = site), 
+               data = site_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_site_16S_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_16S_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
+```
+
+
+### ITS Soil ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_soil_rare_ITS.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_soil_rare_ITS.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_soil_rare_ITS.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_ITS_soil"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+# PERMANOVA (just the categorical variables of interest)
+
+```{r}
+# niche and site
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ site,
+                          data = x, by = "terms")
+permanova # view
+perm_site_ITS_soil <- tidy(permanova) # save as dataframe
+# niche and climate
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ climate,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_climate_ITS_soil <- tidy(permanova)
+```
+
+## Adonis Rank tests to inform GLM construction
+
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm1 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm2 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm3 <- tidy(lm[1,])
+
+# temp
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm4 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm5 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm6 <- tidy(lm[1,])
+
+# elevation
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ altitude,
+                          data = x, by = "terms")
+lm7 <- tidy(lm[1,])
+
+# soil
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm8 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm9 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH.2`,
+                          data = x, by = "terms")
+lm10 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm11 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm12 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm13 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `OM.3`,
+                          data = x, by = "terms")
+lm14 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm15 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm16 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm17 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm18 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm19 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm20 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm21 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm22 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm23 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm24 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm25 <- tidy(lm[1,])
+
+# tree
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm26<- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm27 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm28 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm29 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm30 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm31 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm3, lm6, lm7, lm8, lm9, lm10, lm11,
+                       lm12, lm13, lm14, lm15, lm16, lm17, lm18, lm19, lm20, 
+                       lm21, lm22, lm23, lm24, lm25, lm26, lm27, lm28, lm29, 
+                       lm30, lm31)
+lm_full_table_ITS_soil <- lm_full_table %>%
+  arrange(desc(R2))
+```
+
+Examine the lm_full_table to determine which variables have the greatest impact on beta-diversity. This will be the order they appear in the GLM, however if two variables are highly correlated, the less influential of the two will be removed to avoid overfitting.
+
+
+# Full GLM for continuous variables
+
+I changed the variables from ITS to use the ones that are most significant in ITS_soil. These will go into the CCA plot too.
+
+```{r}
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ altitude + `decade_ave_tmax..deg.c.` + 
+                 Fe + `decade_ave_prcp..mm.day.` + CN + `pH.2` + Clay + Silt + 
+                 `C.y` + Na + VPDleaf + Tleaf,
+                          data = x, by = "terms")
+glm
+full_glm_ITS_soil <- tidy(glm)
+```
+
+Might come back to the GLMs in general. Hard to arrange them because moving one variable can change the whole model.
+
+## Checking ordinations in phyloseq
+
+```{r}
+physeq <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+# calculate bray curtis distances for different ordination types
+## CCA
+CCA <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "CCA", 
+  distance = "bray" 
+)
+## NMDS
+NMDS <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "NMDS",
+  distance = "bray" 
+)
+
+# Plot the different ordinations
+## plot CCA
+plot_ordination(
+  physeq = physeq,
+  ordination = CCA) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+## plot NMDS
+plot_ordination(
+  physeq = physeq,
+  ordination = NMDS) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+
+```
+
+# CCA plot
+
+```{r}
+# reformat metadata for CCA to include only environmental variables from the PERMANOVA
+meta_1 <- meta %>%
+  select_if(is.numeric) %>%
+  select(altitude, `decade_ave_tmax..deg.c.`, Fe, `decade_ave_prcp..mm.day.`, 
+         CN, `pH.2`, Clay, Silt, `C.y`, Na, VPDleaf, Tleaf) %>%
+  rename(Temperature = `decade_ave_tmax..deg.c.`, 
+         Precipitation = `decade_ave_prcp..mm.day.`,
+         pH = `pH.2`, C = `C.y`)
+# align ttab and meta then split again to preserve order 
+ttab_meta <- merge(meta_1, ttab, by = "row.names")
+# set rownames
+rownames(ttab_meta) <- ttab_meta$Row.names
+
+# set species (asvtab) and environmental (relevant metadata) for CCA
+species_data <- ttab_meta[ ,(ncol(meta_1) + 2):ncol(ttab_meta)]
+env_data <- ttab_meta[ , 2:(ncol(meta_1) + 1)]
+
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genus from datatable v (in this case "genus" is ASV number)
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points (each sample becomes it's own point)
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = ttab_meta$Row.names
+# combine with sample data
+meta_2 <- meta %>%
+  rownames_to_column("Row.names")
+veg_4 <- inner_join(meta_2, veg_3)
+
+## Plot in ggplot
+# Relevel points by site
+veg_5 <- veg_4 %>% 
+  select(1:5, c(CCA1, CCA2)) %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+
+# make figure 
+cca_plot_ITS_soil_full <- ggplot() + 
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) + 
+# veg_5 contains the data for the points aligned with the metadata for site info
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                             "#666E73","#746860","#82624D","#905C39",
+                             "#9E5626","#AC5013","#BA4A00")) + 
+  geom_segment(data = veg_1, # veg_1 contains information for the arrows
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("ITS_soil CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot_ITS_soil_full
+
+# save figure
+ggsave(paste0("results/beta_results/CCA_key_variables", term, ".png"), width = 6, height = 4)
+```
+
+# Make NMDS plots
+
+# NMDS
+
+```{r}
+# run nmds with bray curtis distance (need the object from CCA)
+nmds = metaMDS(decostand(species_data, method = "total"), 
+               distance = "bray", trymax = 999)
+nmds
+# plot the basic NMDS
+plot1 <- plot(nmds)
+# collect ellipses
+site_ellipses <- ordiellipse(plot1, groups = x$site, display = "sites", kind = "sd")
+niche_ellipses <- ordiellipse(plot1, groups = x$niche, display = "sites", kind = "sd")
+climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", kind = "sd")
+# Save as long form objects
+site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
+niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
+
+# extract NMDS scores (x and y coordinates)
+data.scores = as.data.frame(scores(nmds)$sites)
+# combine with metadata
+nmds_df <- data.frame(x, data.scores)
+nmds_df$asv_id <- rownames(nmds_df)
+# collect points
+points_long <- sites.long(plot1, env.data = meta)
+
+### Make Site NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+# Relevel ellipses by site
+site_ellipses_long <- site_ellipses_long %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))  %>%
+  arrange(site)
+# make figure 
+nmds_plot_site_ITS_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = site), 
+               data = site_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_site_ITS_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_ITS_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_ITS_soil_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
+```
+
+
+### 16S Rhizo ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S_rhizo"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+# PERMANOVA (just the categorical variables of interest)
+
+```{r}
+# niche and site
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ site,
+                          data = x, by = "terms")
+permanova # view
+perm_site_16S_rhizo <- tidy(permanova) # save as dataframe
+# niche and climate
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ climate,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_climate_16S_rhizo <- tidy(permanova)
+```
+
+## Adonis Rank tests to inform GLM construction
+
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm1 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm2 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm3 <- tidy(lm[1,])
+
+# temp
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm4 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm5 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm6 <- tidy(lm[1,])
+
+# elevation
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ altitude,
+                          data = x, by = "terms")
+lm7 <- tidy(lm[1,])
+
+# rhizo
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm8 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm9 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH.2`,
+                          data = x, by = "terms")
+lm10 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm11 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm12 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm13 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `OM.3`,
+                          data = x, by = "terms")
+lm14 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm15 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm16 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm17 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm18 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm19 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm20 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm21 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm22 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm23 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm24 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm25 <- tidy(lm[1,])
+
+# tree
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm26<- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm27 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm28 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm29 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm30 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm31 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm3, lm6, lm7, lm8, lm9, lm10, lm11,
+                       lm12, lm13, lm14, lm15, lm16, lm17, lm18, lm19, lm20, 
+                       lm21, lm22, lm23, lm24, lm25, lm26, lm27, lm28, lm29, 
+                       lm30, lm31)
+lm_full_table_16S_rhizo <- lm_full_table %>%
+  arrange(desc(R2))
+```
+
+Examine the lm_full_table to determine which variables have the greatest impact on beta-diversity. This will be the order they appear in the GLM, however if two variables are highly correlated, the less influential of the two will be removed to avoid overfitting.
+
+
+# Full GLM for continuous variables
+
+I changed the variables from 16S to use the ones that are most significant in 16S_rhizo. These will go into the CCA plot too.
+
+```{r}
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + 
+                 altitude + `pH.2` + `decade_ave_prcp..mm.day.` + CN + Clay + Na + 
+                 P + Fe + Mg + Tleaf,
+                          data = x, by = "terms")
+glm
+full_glm_16S_rhizo <- tidy(glm)
+```
+
+Might come back to the GLMs in general. Hard to arrange them because moving one variable can change the whole model.
+
+## Checking ordinations in phyloseq
+
+```{r}
+physeq <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+# calculate bray curtis distances for different ordination types
+## CCA
+CCA <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "CCA", 
+  distance = "bray" 
+)
+## NMDS
+NMDS <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "NMDS",
+  distance = "bray" 
+)
+
+# Plot the different ordinations
+## plot CCA
+plot_ordination(
+  physeq = physeq,
+  ordination = CCA) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+## plot NMDS
+plot_ordination(
+  physeq = physeq,
+  ordination = NMDS) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+
+```
+
+# CCA plot
+
+```{r}
+# reformat metadata for CCA to include only environmental variables from the PERMANOVA
+meta_1 <- meta %>%
+  select_if(is.numeric) %>%
+  select(`decade_ave_tmax..deg.c.`, altitude, `pH.2`, `decade_ave_prcp..mm.day.`, 
+         CN, Clay, Na, P, Fe, Mg, Tleaf) %>%
+  rename(Temperature = `decade_ave_tmax..deg.c.`, 
+         Precipitation = `decade_ave_prcp..mm.day.`,
+         pH = `pH.2`)
+# align ttab and meta then split again to preserve order 
+ttab_meta <- merge(meta_1, ttab, by = "row.names")
+# set rownames
+rownames(ttab_meta) <- ttab_meta$Row.names
+
+# set species (asvtab) and environmental (relevant metadata) for CCA
+species_data <- ttab_meta[ ,(ncol(meta_1) + 2):ncol(ttab_meta)]
+env_data <- ttab_meta[ , 2:(ncol(meta_1) + 1)]
+
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genus from datatable v (in this case "genus" is ASV number)
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points (each sample becomes it's own point)
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = ttab_meta$Row.names
+# combine with sample data
+meta_2 <- meta %>%
+  rownames_to_column("Row.names")
+veg_4 <- inner_join(meta_2, veg_3)
+
+## Plot in ggplot
+# Relevel points by site
+veg_5 <- veg_4 %>% 
+  select(1:5, c(CCA1, CCA2)) %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+
+# make figure 
+cca_plot_16S_rhizo_full <- ggplot() + 
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) + 
+# veg_5 contains the data for the points aligned with the metadata for site info
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                             "#666E73","#746860","#82624D","#905C39",
+                             "#9E5626","#AC5013","#BA4A00")) + 
+  geom_segment(data = veg_1, # veg_1 contains information for the arrows
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("16S_rhizo CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot_16S_rhizo_full
+
+# save figure
+ggsave(paste0("results/beta_results/CCA_key_variables", term, ".png"), width = 6, height = 4)
+```
+
+# Make NMDS plots
+
+# NMDS
+
+```{r}
+# run nmds with bray curtis distance (need the object from CCA)
+nmds = metaMDS(decostand(species_data, method = "total"), 
+               distance = "bray", trymax = 999)
+nmds
+# plot the basic NMDS
+plot1 <- plot(nmds)
+# collect ellipses
+site_ellipses <- ordiellipse(plot1, groups = x$site, display = "sites", kind = "sd")
+niche_ellipses <- ordiellipse(plot1, groups = x$niche, display = "sites", kind = "sd")
+climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", kind = "sd")
+# Save as long form objects
+site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
+niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
+
+# extract NMDS scores (x and y coordinates)
+data.scores = as.data.frame(scores(nmds)$sites)
+# combine with metadata
+nmds_df <- data.frame(x, data.scores)
+nmds_df$asv_id <- rownames(nmds_df)
+# collect points
+points_long <- sites.long(plot1, env.data = meta)
+
+### Make Site NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+# Relevel ellipses by site
+site_ellipses_long <- site_ellipses_long %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))  %>%
+  arrange(site)
+# make figure 
+nmds_plot_site_16S_rhizo_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = site), 
+               data = site_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_site_16S_rhizo_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_16S_rhizo_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_16S_rhizo_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
+```
+
+
+### ITS Rhizo ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_rhizo_rare_ITS.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rhizo_rare_ITS.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rhizo_rare_ITS.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_ITS_rhizo"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+# PERMANOVA (just the categorical variables of interest)
+
+```{r}
+# niche and site
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ site,
+                          data = x, by = "terms")
+permanova # view
+perm_site_ITS_rhizo <- tidy(permanova) # save as dataframe
+# niche and climate
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ climate,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_climate_ITS_rhizo <- tidy(permanova)
+```
+
+## Adonis Rank tests to inform GLM construction
+
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm1 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm2 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_prcp..mm.day.,
+                          data = x, by = "terms")
+lm3 <- tidy(lm[1,])
+
+# temp
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ month_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm4 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ year_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm5 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ decade_ave_tmax..deg.c.,
+                          data = x, by = "terms")
+lm6 <- tidy(lm[1,])
+
+# elevation
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ altitude,
+                          data = x, by = "terms")
+lm7 <- tidy(lm[1,])
+
+# rhizo
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm8 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm9 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH.2`,
+                          data = x, by = "terms")
+lm10 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm11 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm12 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm13 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `OM.3`,
+                          data = x, by = "terms")
+lm14 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm15 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm16 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm17 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm18 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm19 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm20 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm21 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm22 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm23 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm24 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm25 <- tidy(lm[1,])
+
+# tree
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm26<- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm27 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm28 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm29 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm30 <- tidy(lm[1,])
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm31 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm3, lm6, lm7, lm8, lm9, lm10, lm11,
+                       lm12, lm13, lm14, lm15, lm16, lm17, lm18, lm19, lm20, 
+                       lm21, lm22, lm23, lm24, lm25, lm26, lm27, lm28, lm29, 
+                       lm30, lm31)
+lm_full_table_ITS_rhizo <- lm_full_table %>%
+  arrange(desc(R2))
+```
+
+Examine the lm_full_table to determine which variables have the greatest impact on beta-diversity. This will be the order they appear in the GLM, however if two variables are highly correlated, the less influential of the two will be removed to avoid overfitting.
+
+
+# Full GLM for continuous variables
+
+I changed the variables from ITS to use the ones that are most significant in ITS_rhizo. These will go into the CCA plot too.
+
+```{r}
+glm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_tmax..deg.c.` + Fe + 
+                 altitude + `pH.2` + `decade_ave_prcp..mm.day.` + CN + 
+                 Clay + Silt + `C.y` + Na + Tleaf + VPDleaf,
+                          data = x, by = "terms")
+glm
+full_glm_ITS_rhizo <- tidy(glm)
+```
+
+Might come back to the GLMs in general. Hard to arrange them because moving one variable can change the whole model.
+
+## Checking ordinations in phyloseq
+
+```{r}
+physeq <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.matrix(tax)),
+  sample_data(meta))
+# calculate bray curtis distances for different ordination types
+## CCA
+CCA <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "CCA", 
+  distance = "bray" 
+)
+## NMDS
+NMDS <- ordinate(
+  physeq = physeq, #change this to your phyloseq
+  method = "NMDS",
+  distance = "bray" 
+)
+
+# Plot the different ordinations
+## plot CCA
+plot_ordination(
+  physeq = physeq,
+  ordination = CCA) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+## plot NMDS
+plot_ordination(
+  physeq = physeq,
+  ordination = NMDS) +
+  geom_point(aes(color = site), size = 3) + 
+  scale_fill_manual(values = c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73","#746860","#82624D",
+           "#905C39", "#9E5626","#AC5013","#BA4A00"))
+
+```
+
+# CCA plot
+
+```{r}
+# reformat metadata for CCA to include only environmental variables from the PERMANOVA
+meta_1 <- meta %>%
+  select_if(is.numeric) %>%
+  select(`decade_ave_tmax..deg.c.`, Fe, altitude, `pH.2`, Fe, 
+         `decade_ave_prcp..mm.day.`, CN, Clay, Silt, `C.y`, Na, Tleaf, VPDleaf) %>%
+  rename(Temperature = `decade_ave_tmax..deg.c.`, 
+         Precipitation = `decade_ave_prcp..mm.day.`,
+         pH = `pH.2`, C = `C.y`)
+# align ttab and meta then split again to preserve order 
+ttab_meta <- merge(meta_1, ttab, by = "row.names")
+# set rownames
+rownames(ttab_meta) <- ttab_meta$Row.names
+
+# set species (asvtab) and environmental (relevant metadata) for CCA
+species_data <- ttab_meta[ ,(ncol(meta_1) + 2):ncol(ttab_meta)]
+env_data <- ttab_meta[ , 2:(ncol(meta_1) + 1)]
+
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genus from datatable v (in this case "genus" is ASV number)
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points (each sample becomes it's own point)
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = ttab_meta$Row.names
+# combine with sample data
+meta_2 <- meta %>%
+  rownames_to_column("Row.names")
+veg_4 <- inner_join(meta_2, veg_3)
+
+## Plot in ggplot
+# Relevel points by site
+veg_5 <- veg_4 %>% 
+  select(1:5, c(CCA1, CCA2)) %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+
+# make figure 
+cca_plot_ITS_rhizo_full <- ggplot() + 
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) + 
+# veg_5 contains the data for the points aligned with the metadata for site info
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                             "#666E73","#746860","#82624D","#905C39",
+                             "#9E5626","#AC5013","#BA4A00")) + 
+  geom_segment(data = veg_1, # veg_1 contains information for the arrows
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("ITS_rhizo CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot_ITS_rhizo_full
+
+# save figure
+ggsave(paste0("results/beta_results/CCA_key_variables", term, ".png"), width = 6, height = 4)
+```
+
+# Make NMDS plots
+
+# NMDS
+
+```{r}
+# run nmds with bray curtis distance (need the object from CCA)
+nmds = metaMDS(decostand(species_data, method = "total"), 
+               distance = "bray", trymax = 999)
+nmds
+# plot the basic NMDS
+plot1 <- plot(nmds)
+# collect ellipses
+site_ellipses <- ordiellipse(plot1, groups = x$site, display = "sites", kind = "sd")
+niche_ellipses <- ordiellipse(plot1, groups = x$niche, display = "sites", kind = "sd")
+climate_ellipses <- ordiellipse(plot1, groups = x$climate, display = "sites", kind = "sd")
+# Save as long form objects
+site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
+niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
+climate_ellipses_long <- ordiellipse.long(climate_ellipses, grouping.name = "climate")
+
+# extract NMDS scores (x and y coordinates)
+data.scores = as.data.frame(scores(nmds)$sites)
+# combine with metadata
+nmds_df <- data.frame(x, data.scores)
+nmds_df$asv_id <- rownames(nmds_df)
+# collect points
+points_long <- sites.long(plot1, env.data = meta)
+
+### Make Site NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+# Relevel ellipses by site
+site_ellipses_long <- site_ellipses_long %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))  %>%
+  arrange(site)
+# make figure 
+nmds_plot_site_ITS_rhizo_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = site), 
+               data = site_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_site_ITS_rhizo_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_site", term, ".png"), width = 6, height = 4)
+
+### Make Climate NMDS plot
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+# Relevel ellipses by site
+climate_ellipses_long <- climate_ellipses_long %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
+  arrange(climate)
+# make figure 
+nmds_plot_climate_ITS_rhizo_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+  geom_point() + 
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  geom_polygon(aes(x = axis1, y = axis2, color = climate), 
+               data = climate_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot_climate_ITS_rhizo_full
+# save figure
+ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
+```
+
+
+# Just the roots to go
 
 
