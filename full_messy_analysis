@@ -1,0 +1,4741 @@
+---
+title: "incline_analysis_from_final_sequencing_runs"
+output: html_document
+date: "2025-02-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+current github access token:
+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
+
+# Readme
+
+This is the final cleaned code to perform analysis to demonstrate the presence of an environmental stress gradient over the Cascades in Washington. There are 16S and ITS sequencing data for the soil (bulk soil), and rhizosphere and roots of Populus trees. 
+
+# install packages
+
+```{r}
+install.packages("ape")
+install.packages("igraph")
+
+if(!requireNamespace("BiocManager")){
+  install.packages("BiocManager")
+}
+BiocManager::install("phyloseq") # install from binaries not source version
+BiocManager::install("DESeq2")
+
+install.packages("tidyverse")
+install.packages("ggplot2")
+
+if (!requireNamespace("devtools", quietly = TRUE)){install.packages("devtools")}
+devtools::install_github("jbisanz/qiime2R")
+
+install.packages("ggpubr")
+install.packages("rcompanion")
+install.packages("FSA")
+install.packages("ggh4x")
+install.packages("microViz")
+
+install.packages(
+  "microViz",
+  repos = c(davidbarnett = "https://david-barnett.r-universe.dev", getOption("repos"))
+)
+
+BiocManager::install("microbiome")
+
+install.packages("phylosmith")
+
+devtools::install_github('schuyler-smith/phylosmith')
+
+install.packages("hillR")
+install.packages("plotly")
+
+devtools::install_github("microEcology/pime")
+
+install.packages("factoextra")
+install.packages("ggbiplot")
+install.packages("ordr")
+install.packages("tcltk")
+install.packages("BiodiversityR")
+install.packages("agricolae")
+install.packages("pheatmap")
+
+BiocManager::install("ANCOMBC")
+
+install.packages("ggtern")
+install.packages("microbiomeutilities")
+devtools::install_github("microsud/microbiomeutilities")
+
+
+
+```
+
+# Note to request personal access token for github downloads:
+usethis::create_github_token()
+gitcreds::gitcreds_set()
+# current token:
+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
+
+
+# load packages
+
+```{r}
+library("ape")
+library("igraph")
+library("phyloseq")
+library("tidyverse")
+library("ggplot2")
+library("qiime2R")
+library("ggpubr")
+library("scales")
+library("viridis")
+library("car")
+library("rcompanion")
+library("FSA")
+library("vegan")
+library("RColorBrewer")
+library("ggh4x")
+library("microViz")
+library("microbiome")
+library("phylosmith")
+library("hillR")
+library("rstatix")
+library("plotly")
+library("pime")
+library("factoextra")
+library("ggbiplot")
+library("stats")
+library("ordr")
+library("DESeq2")
+library("tcltk")
+library("BiodiversityR")
+library("agricolae")
+library("pheatmap")
+library("ANCOMBC")
+library("ggrepel")
+library("microbiome")
+library("ggtern")
+```
+
+# Function for rarefaction from Aaron Onufrack
+
+## Rarefaction Curve Plotter
+
+The below function takes the following objects to generate rarefaction curves generated in ggplot:
+
+1. **nonrarefied_asv_tab**: The original non-rarefied asv table 
+2. **metadata**: The original metadata object that describes origins of samples
+3. **vars**: Factor used to determine the cut-off for the maximum sequencing depth that can be used to retain at least 3 replicates per factor condition. 
+4. **color**: metadata factor used to color lines
+
+The function will return a list contatining the following objects:
+
+1. rarefaction_obj: A dataframe containing the rarefaction sampling information for each sample
+2. rarefaction_plot: A ggplot depicting the rarefaction curves. 
+
+```{r}
+# Function for constructing rarefaction curves (written by Aaron Onufrak)
+rarefaction_plotter<-function(nonrarefied_asv_tab,metadata,vars,color){
+  # Constructing rarefaction curves for fungal root communities
+  rarefaction_tidy<-vegan::rarecurve(nonrarefied_asv_tab,tidy = TRUE)
+  rarefaction_obj<-merge(metadata,rarefaction_tidy,by.x=0,by.y="Site")
+  colnames(rarefaction_obj)<-sub("Row.names","Sample.ID",colnames(rarefaction_obj))
+  replicate_min<-c()
+  replicate_break<-c()
+  for(i in 1:length(nonrarefied_asv_tab)){
+    sample_depth<-sort(rowSums(nonrarefied_asv_tab))[i]
+    rarefied_table<-suppressWarnings(as.data.frame(rrarefy(nonrarefied_asv_tab,sample=sample_depth)))
+    ds.rarefied<-as.data.frame(subset(rarefied_table,rowSums(rarefied_table)>=sample_depth))
+    test.df<-as.data.frame(merge(ds.rarefied,metadata,by.x=0,by.y=0)) %>%
+  dplyr::count({{vars}},.drop=FALSE)
+    print(test.df)
+if(((nrow(test.df[test.df$n>=3,]))>0)&&(!(nrow(test.df[test.df$n<3,]))>=1)){
+  replicate_min<-c(replicate_min,sample_depth)
+}
+if((nrow(test.df[test.df$n<3,]))>0){
+  replicate_break<-c(replicate_break,sample_depth)
+  break
+}
+    print(replicate_break)
+    print(replicate_min[length(replicate_min)])
+  }
+  seq_counts_unrarefied<-sort(rowSums(nonrarefied_asv_tab))
+  rarefaction_plot<-ggplot()+
+  geom_line(data=rarefaction_obj,aes(x=Sample,y=Species,color=.data[[color]],group=.data[["Sample.ID"]]))+
+  geom_vline(data=NULL,xintercept=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.30),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]),linetype=2)+
+  geom_vline(data=NULL,xintercept=replicate_min[length(replicate_min)],color="green")+
+    geom_vline(data=NULL,xintercept=replicate_break[1],color="red")+
+    scale_x_continuous(
+      breaks=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.30),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]),
+      labels=c(seq_counts_unrarefied[c(1,round(length(seq_counts_unrarefied)*0.1),round(length(seq_counts_unrarefied)*0.3),round(length(seq_counts_unrarefied)*0.60),round(length(seq_counts_unrarefied)*0.9),length(seq_counts_unrarefied))]))+
+  geom_text(data=NULL,aes(x=replicate_min[length(replicate_min)]-1000,y=max(rarefaction_obj$Species+10),label=replicate_min[length(replicate_min)],angle=90))+
+      geom_text(data=NULL,aes(x=replicate_break[1]-1000,y=max(rarefaction_obj$Species+10),label=replicate_break[1],angle=90))+
+    theme(panel.background = element_blank(),panel.border = element_rect(fill=NA,color="black"))+
+  xlab("Number of Sequences")+
+  ylab("ASV Count")
+  rarefaction_information<-list(rarefaction_obj,rarefaction_plot)
+  print(paste0("The maximum rarefaction cut-off that can be used to retain at least 3 replicates per treatment is ",replicate_min[length(replicate_min)]))
+  return(rarefaction_information)
+
+    
+}
+```
+
+
+
+# Load files from the amplicon analysis results
+
+#################### 16S from DADA2 in R #################################
+
+# Load Files
+otutabtax
+```{r}
+otutabtax_16S <- read.table("~/Desktop/R/incline/16S_soil_rhizo_rerun_labkey/results/otutabtax_16S.txt", header = TRUE, sep = "\t")
+# make row ids
+otutabtax_16S <- as.data.frame(otutabtax_16S)
+row.names(otutabtax_16S) <- otutabtax_16S$X
+otutabtax_16S <- otutabtax_16S[,-1]
+```
+metadata
+```{r}
+# read in new metadata
+meta_16S <- read.table("~/Desktop/R/incline/16S_soil_rhizo_rerun_labkey/results/full_metadata.txt", header = TRUE, sep = '\t')
+# make the rownames the sample IDs
+meta_16S <- as.data.frame(meta_16S)
+row.names(meta_16S) <- meta_16S$sample_id
+meta_16S <- meta_16S[,-1]
+```
+
+# Clean tables
+
+```{r}
+otutabtax_16S <- otutabtax
+otutab_16S <- otutab
+# total OTUs (change to fit dimensions of OTU table)
+otutotals <- mutate(.data = otutabtax_16S, otutotal = rowSums(otutabtax_16S[,1:ncol(otutab_16S)]))
+# identify rare OTUs (change based on data type and number of samples)
+# otutotal > ~ 30% of samples
+otunotrare <- otutotals %>%
+  filter(otutotal > 30)
+dim(otutotals) # check old dimensions
+dim(otunotrare) # check new dimensions to see how much is cut
+```
+
+
+```{r}
+# cut rare column
+otutabtax_16S_filt <- otunotrare[ , 1:ncol(otutabtax_16S)]
+# remove host reads (consider sample type and amplicon)
+otutabtax_16S_filt$host <- 0
+otuhost <- otutabtax_16S_filt %>%
+  mutate(host = case_when(
+    grepl("Rickettsiales", Order) ~ "remove",
+    grepl("Chloropla", Class) ~ "remove",
+    TRUE ~ "keep"))
+otuhost_only <- filter(.data = otuhost, host == "remove")
+otufilt <- filter(.data = otuhost, host == "keep")
+# remove host column
+otutabtax_16S_filt_final <- otufilt %>%
+  subset(select = -c(host))
+dim(otutabtax_16S_filt_final)
+otutabtax_16S <- otutabtax_16S_filt_final
+```
+
+# Checking the files
+
+```{r}
+row.names(otutabtax_16S) # should be OTU numbers
+colnames(otutabtax_16S) # should be sample IDs
+dim(otutabtax_16S)
+# subset so that only OTU counts are included
+otutab_16S <- otutabtax_16S[,1:(length(otutabtax_16S)-7)] # removes taxonomy
+# check dimensions of new table and manually check first and last sample
+dim(otutab_16S)
+# Determining number of sequences and OTUs that are retained after sequence process
+sum(otutab_16S)
+nrow(otutab_16S)
+# transpose for vegan
+totutab_16S <- as.data.frame(t(otutab_16S))
+# make separate taxonomy file
+tax_16S <- otutabtax_16S[,(length(otutabtax_16S)-6):length(otutabtax_16S)]
+```
+
+
+
+# Subsetting by niche
+
+```{r}
+totutab_16S_soil <- totutab_16S[grep("soil", row.names(totutab_16S)),]
+totutab_16S_rhizo <- totutab_16S[grep("rhizo", row.names(totutab_16S)),]
+totutab_16S_root <- totutab_16S[grep("root", row.names(totutab_16S)),]
+```
+
+# Rarefaction
+
+This chunk will use Aaron's functions
+
+```{r}
+# Generating rarefaction curves
+rare_16S <- rarefaction_plotter(nonrarefied_asv_tab = totutab_16S, 
+                                metadata = meta_16S, vars = niche, color = "niche") # long
+
+rarefaction_16S <- rare_16S
+# Pulling out rarefaction curves
+rareplot_16S <- rare_16S[[2]]
+rareplot_16S
+
+# save plot
+ggsave("~/Desktop/R/incline/16S_soil_rhizo_rerun_labkey/results/figures/rareplot_16S.png", 
+       plot = rareplot_16S, width = 16, height = 10)
+
+# Determining number of sequences per sample prior to rarefaction
+totutab_16S_sample_counts <- as.data.frame(sort(rowSums(totutab_16S)))
+totutab_16S_sample_counts
+
+write.table(totutab_16S_sample_counts, 
+            "~/Desktop/R/incline/16S_soil_rhizo_rerun_labkey/results/sample_counts_pre_rare_16S.txt", 
+            col.names = TRUE, sep = '\t')
+```
+
+Lowest sample is 8 (probably wasn't loaded or amplified or something). 
+
+Lowest Soil: 8 (second lowest: 18040, third lowest: 48924)
+Lowest Rhizo: 26834
+Lowest Root: 26706
+I will rarefy to 26700 for the whole set and see how that goes.
+
+
+### Using Phyloseq to subset and rarefy the data ###
+
+# Load into Phyloseq
+
+```{r}
+## 16S
+# Creating phyloseq objects
+tax_16S_matrix <- as.matrix(tax_16S)
+# create phyloseq object
+physeq16S <- phyloseq(
+  otu_table(otutab_16S, taxa_are_rows = T),
+  tax_table(tax_16S_matrix),
+  sample_data(meta_16S))
+```
+
+
+# Subset and Rarefy
+
+```{r}
+# sort by sample type
+physeq16S_soil <- subset_samples(physeq16S, niche == "soil")
+physeq16S_rhizo <- subset_samples(physeq16S, niche == "rhizo")
+physeq16S_root <- subset_samples(physeq16S, niche == "roots")
+
+physeq16S_bac <- subset_taxa(physeq16S, Kingdom == "Bacteria")
+
+# rarefy each sample type separately
+physeq16S_soil_rare <-prune_samples(sample_sums(physeq16S_soil)>=48900, physeq16S_soil) %>%
+  rarefy_even_depth()
+physeq16S_rhizo_rare <-prune_samples(sample_sums(physeq16S_rhizo)>=26800, physeq16S_rhizo) %>%
+  rarefy_even_depth()
+physeq16S_root_rare <-prune_samples(sample_sums(physeq16S_root)>=26700, physeq16S_root) %>%
+  rarefy_even_depth()
+
+# rarefy the whole set when looking at all the compartments together
+physeq16S_rare <-prune_samples(sample_sums(physeq16S)>=26700, physeq16S) %>%
+  rarefy_even_depth() # error: Error in h(simpleError(msg, call)) : error in evaluating the argument 'object' in selecting a method for function 'otu_table': unable to find an inherited method for function ‘prune_samples’ for signature ‘samples = "array", x = "phyloseq"’
+
+# had to use an alternate script for rarefying this time: 
+#physeq16S_rare <- rarefy_even_depth(physeq16S, sample.size = min(sample_sums(physeq16S)),
+#  rngseed = FALSE, replace = TRUE, trimOTUs = TRUE, verbose = TRUE)
+
+sample_sums(physeq16S)
+sample_sums(physeq16S_rare)
+```
+
+# Extract OTU table, taxonomy, and metadata for each group
+
+```{r}
+# 16S
+o16S_otutab <- as.data.frame(physeq16S_rare@otu_table)
+o16S_tax <- as.data.frame(physeq16S_rare@tax_table)
+o16S_meta <- as.data.frame(physeq16S_rare@sam_data)
+# Soil
+o16S_soil_otutab <- as.data.frame(physeq16S_soil_rare@otu_table)
+o16S_soil_tax <- as.data.frame(physeq16S_soil_rare@tax_table)
+o16S_soil_meta <- as.data.frame(physeq16S_soil_rare@sam_data)
+# Rhizo
+o16S_rhizo_otutab <- as.data.frame(physeq16S_rhizo_rare@otu_table)
+o16S_rhizo_tax <- as.data.frame(physeq16S_rhizo_rare@tax_table)
+o16S_rhizo_meta <- as.data.frame(physeq16S_rhizo_rare@sam_data)
+# Root
+o16S_root_otutab <- as.data.frame(physeq16S_root_rare@otu_table)
+o16S_root_tax <- as.data.frame(physeq16S_root_rare@tax_table)
+o16S_root_meta <- as.data.frame(physeq16S_root_rare@sam_data)
+```
+
+
+# Change column names of otutables to have correct site names
+
+```{r}
+o16S_otutab_1 <- o16S_otutab
+colnames(o16S_otutab_1) <- gsub("CR15", "CR1.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR25", "TR2.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR35", "TR3.5", colnames(o16S_otutab_1))
+o16S_otutab <- o16S_otutab_1
+
+o16S_otutab_1 <- o16S_soil_otutab
+colnames(o16S_otutab_1) <- gsub("CR15", "CR1.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR25", "TR2.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR35", "TR3.5", colnames(o16S_otutab_1))
+o16S_soil_otutab <- o16S_otutab_1
+
+o16S_otutab_1 <- o16S_rhizo_otutab
+colnames(o16S_otutab_1) <- gsub("CR15", "CR1.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR25", "TR2.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR35", "TR3.5", colnames(o16S_otutab_1))
+o16S_rhizo_otutab <- o16S_otutab_1
+
+o16S_otutab_1 <- o16S_root_otutab
+colnames(o16S_otutab_1) <- gsub("CR15", "CR1.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR25", "TR2.5", colnames(o16S_otutab_1))
+colnames(o16S_otutab_1) <- gsub("TR35", "TR3.5", colnames(o16S_otutab_1))
+o16S_root_otutab <- o16S_otutab_1
+```
+
+
+# Change metadata to have correct rownames
+
+```{r}
+o16S_meta_1 <- o16S_meta
+rownames(o16S_meta_1) <- gsub("CR15", "CR1.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR25", "TR2.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR35", "TR3.5", rownames(o16S_meta_1))
+o16S_meta <- o16S_meta_1
+
+o16S_meta_1 <- o16S_soil_meta
+rownames(o16S_meta_1) <- gsub("CR15", "CR1.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR25", "TR2.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR35", "TR3.5", rownames(o16S_meta_1))
+o16S_soil_meta <- o16S_meta_1
+
+o16S_meta_1 <- o16S_rhizo_meta
+rownames(o16S_meta_1) <- gsub("CR15", "CR1.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR25", "TR2.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR35", "TR3.5", rownames(o16S_meta_1))
+o16S_rhizo_meta <- o16S_meta_1
+
+o16S_meta_1 <- o16S_root_meta
+rownames(o16S_meta_1) <- gsub("CR15", "CR1.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR25", "TR2.5", rownames(o16S_meta_1))
+rownames(o16S_meta_1) <- gsub("TR35", "TR3.5", rownames(o16S_meta_1))
+o16S_root_meta <- o16S_meta_1
+```
+
+
+# Align full metadata 
+
+```{r}
+# old metadata
+full_meta <- read.table("~/Desktop/R/incline/qiime_results/full_metadata.txt", 
+                        header = TRUE, sep = "\t")
+full_meta <- full_meta %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "sample_id")
+
+library(readr)
+# new metadata with tree, full soil, and daymet added
+full_meta <- read_delim("~/Desktop/R/incline/new_full_metadata.csv", delim = ",")
+full_meta <- full_meta %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "sample_id")
+
+o16S_meta_samples <- o16S_meta[,-(1:3)]
+o16S_meta_test <- merge(o16S_meta_samples, full_meta, by = 0)
+o16S_meta <- o16S_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_soil_meta_samples <- o16S_soil_meta[,-(1:3)]
+o16S_soil_meta_test <- merge(o16S_soil_meta_samples, full_meta, by = 0)
+o16S_soil_meta <- o16S_soil_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_rhizo_meta_samples <- o16S_rhizo_meta[,-(1:3)]
+o16S_rhizo_meta_test <- merge(o16S_rhizo_meta_samples, full_meta, by = 0)
+o16S_rhizo_meta <- o16S_rhizo_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_root_meta_samples <- o16S_root_meta[,-(1:3)]
+o16S_root_meta_test <- merge(o16S_root_meta_samples, full_meta, by = 0)
+o16S_root_meta <- o16S_root_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+```
+
+
+##################################### ITS ######################################
+From Alyssa's QIIME run
+# Reading in data:
+
+```{r}
+# Loading in mapping file
+mapping <- read.delim("mapping.txt")
+
+# ITS
+SVsITS <- read_qza("ITS-dada2table.qza")
+taxonomyITS <- read_qza("ITS-taxonomy.qza")
+taxITS <- taxonomyITS$data %>% 
+  as.tibble() %>%
+  mutate(Taxon = gsub("[a-z]__", "", Taxon)) %>% 
+  separate(Taxon, sep = ";", c("Kingdom","Phylum","Class","Order","Family","Genus","Species")) # remove unite db notation and change column names to classifications
+```
+
+
+# Load into Phyloseq
+
+```{r}
+## ITS
+# Creating phyloseq objects
+physeqITS<-phyloseq(
+  otu_table(SVsITS$data, taxa_are_rows = T),
+  tax_table(as.data.frame(taxITS) %>% 
+              select(-Confidence) %>% 
+              column_to_rownames("Feature.ID") %>% 
+              as.matrix()),
+  sample_data(mapping %>% 
+                as.data.frame() %>% 
+                column_to_rownames("SampleID"))) %>%
+  subset_taxa(Kingdom != "unidentified")
+```
+
+
+# Extract OTU table and taxonomy to rarefy with Aaron's code
+(see further down for how to subset and rarefy directly in phyloseq. Use the sample count data and the curves to inform when rarefying)
+
+```{r}
+# ITS
+oITS_otutab <- as.data.frame(physeqITS@otu_table)
+oITS_tax <- taxITS
+
+write.table(oITS_otutab, "oITS_otutab.txt", col.names = TRUE, sep = '\t')
+```
+
+I made the metadata file in excel with the same samples listed in the OTU table.
+I added all of the site information and climate information from bioclim. 
+
+
+### Transitioning to Aaron's analysis code to rarefy, QC, and run basic analyses ###
+
+First I ran all of the functions in his amplicon analysis code.
+Next I need to format and combine the taxonomy and otu table.
+
+```{r}
+# make the row into a new column called Feature.ID
+otutab_ITS <- rownames_to_column(oITS_otutab, "Feature.ID")
+# combine taxonomy and metadata
+otutabtax_ITS <- otutab_ITS %>%
+  inner_join(oITS_tax)
+# add OTU ID #s
+#  Creating OTU labels and make these new row names.
+otuid <- as.character(c(1:nrow(otutabtax_ITS)))
+otuid <- paste0("otu_", labels(otuid))
+row.names(otutabtax_ITS) <- NULL
+row.names(otutabtax_ITS) <- otuid
+# save new 
+write.table(x = otutabtax_ITS, file = "otutabtax_ITS.txt", col.names = TRUE, sep = "\t")
+# read in new metadata
+meta_ITS <- read.table("~/Desktop/R/incline/qiime_results/oITS_meta.txt", header = TRUE, sep = '\t')
+# make the rownames the sample IDs
+meta_ITS <- as.data.frame(meta_ITS)
+row.names(meta_ITS) <- meta_ITS$sample_id
+meta_ITS <- meta_ITS[,-1]
+```
+
+# Checking the files
+
+```{r}
+row.names(otutabtax_ITS) # should be OTU numbers
+colnames(otutabtax_ITS) # should be sample IDs
+# subset so that only OTU counts are included
+otutab_ITS <- otutabtax_ITS[,2:(length(otutabtax_ITS)-8)] # removes first column, taxonomy, and confidence scores
+# Determining number of sequences and OTUs that are retained after sequence process
+sum(otutab_ITS)
+nrow(otutab_ITS)
+# transpose for vegan
+totutab_ITS <- as.data.frame(t(otutab_ITS))
+```
+
+# Subsetting by niche
+
+```{r}
+totutab_ITS_soil <- totutab_ITS[grep("soil", row.names(totutab_ITS)),]
+totutab_ITS_rhizo <- totutab_ITS[grep("rhizo", row.names(totutab_ITS)),]
+totutab_ITS_root <- totutab_ITS[grep("root", row.names(totutab_ITS)),]
+```
+
+# Rarefaction
+
+This chunk will use Aaron's functions
+
+```{r}
+# Generating rarefaction curves
+rare_ITS <- rarefaction_plotter(nonrarefied_asv_tab = totutab_ITS, 
+                                metadata = meta_ITS, vars = niche, color = "niche") # long
+
+rarefaction_ITS <- rare_ITS
+# Pulling out rarefaction curves
+rareplot_ITS <- rare_ITS[[2]]
+rareplot_ITS
+
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/rareplot_ITS.png", 
+       plot = rareplot_ITS, width = 16, height = 10)
+
+# Determining number of sequences per sample prior to rarefaction
+totutab_ITS_sample_counts <- as.data.frame(sort(rowSums(totutab_ITS)))
+totutab_ITS_sample_counts
+
+write.table(totutab_ITS_sample_counts, 
+            "~/Desktop/R/incline/qiime_results/analysis_results/sample_counts_pre_rare_ITS.txt", 
+            col.names = TRUE, sep = '\t')
+```
+
+Lowest sample is 22590. 
+
+Lowest Soil: 32884
+Lowest Rhizo: 22590
+Lowest Root: 40018
+I will rarefy to 22590 for the whole set and see how that goes.
+
+
+### Using Phyloseq to subset and rarefy the data ###
+# Subset and Rarefy
+
+```{r}
+# sort by sample type
+physeqITS_soil <- subset_samples(physeqITS, type == "soil")
+physeqITS_rhizo <- subset_samples(physeqITS, type == "rhizo")
+physeqITS_root <- subset_samples(physeqITS, type == "roots")
+
+physeqITS_fun <- subset_taxa(physeqITS, Kingdom == "Fungi")
+
+# rarefy each sample type separately
+physeqITS_soil_rare <-prune_samples(sample_sums(physeqITS_soil)>=32000, physeqITS_soil) %>%
+  rarefy_even_depth()
+physeqITS_rhizo_rare <-prune_samples(sample_sums(physeqITS_rhizo)>=22590, physeqITS_rhizo) %>%
+  rarefy_even_depth()
+physeqITS_root_rare <-prune_samples(sample_sums(physeqITS_root)>=40000, physeqITS_root) %>%
+  rarefy_even_depth()
+
+# rarefy the whole set when looking at all the compartments together
+#physeqITS_rare <-prune_samples(sample_sums(physeqITS)>=22500, physeqITS) %>%
+#  rarefy_even_depth() # error: Error in h(simpleError(msg, call)) : error in evaluating the argument 'object' in selecting a method for function 'otu_table': unable to find an inherited method for function ‘prune_samples’ for signature ‘samples = "array", x = "phyloseq"’
+
+# had to use an alternate script for rarefying this time: 
+physeqITS_rare <- rarefy_even_depth(physeqITS, sample.size = min(sample_sums(physeqITS)),
+  rngseed = FALSE, replace = TRUE, trimOTUs = TRUE, verbose = TRUE)
+
+sample_sums(physeqITS)
+sample_sums(physeqITS_rare)
+```
+
+# Extract OTU table, taxonomy, and metadata for each group
+
+```{r}
+# ITS
+oITS_otutab <- as.data.frame(physeqITS_rare@otu_table)
+oITS_tax <- as.data.frame(physeqITS_rare@tax_table)
+oITS_meta <- as.data.frame(physeqITS_rare@sam_data)
+# Soil
+oITS_soil_otutab <- as.data.frame(physeqITS_soil_rare@otu_table)
+oITS_soil_tax <- as.data.frame(physeqITS_soil_rare@tax_table)
+oITS_soil_meta <- as.data.frame(physeqITS_soil_rare@sam_data)
+# Rhizo
+oITS_rhizo_otutab <- as.data.frame(physeqITS_rhizo_rare@otu_table)
+oITS_rhizo_tax <- as.data.frame(physeqITS_rhizo_rare@tax_table)
+oITS_rhizo_meta <- as.data.frame(physeqITS_rhizo_rare@sam_data)
+# Root
+oITS_root_otutab <- as.data.frame(physeqITS_root_rare@otu_table)
+oITS_root_tax <- as.data.frame(physeqITS_root_rare@tax_table)
+oITS_root_meta <- as.data.frame(physeqITS_root_rare@sam_data)
+```
+
+# Change column names of otutables to have correct site names
+
+```{r}
+oITS_otutab_1 <- oITS_otutab
+colnames(oITS_otutab_1) <- gsub("CR15", "CR1.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR25", "TR2.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR35", "TR3.5", colnames(oITS_otutab_1))
+oITS_otutab <- oITS_otutab_1
+
+oITS_otutab_1 <- oITS_soil_otutab
+colnames(oITS_otutab_1) <- gsub("CR15", "CR1.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR25", "TR2.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR35", "TR3.5", colnames(oITS_otutab_1))
+oITS_soil_otutab <- oITS_otutab_1
+
+oITS_otutab_1 <- oITS_rhizo_otutab
+colnames(oITS_otutab_1) <- gsub("CR15", "CR1.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR25", "TR2.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR35", "TR3.5", colnames(oITS_otutab_1))
+oITS_rhizo_otutab <- oITS_otutab_1
+
+oITS_otutab_1 <- oITS_root_otutab
+colnames(oITS_otutab_1) <- gsub("CR15", "CR1.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR25", "TR2.5", colnames(oITS_otutab_1))
+colnames(oITS_otutab_1) <- gsub("TR35", "TR3.5", colnames(oITS_otutab_1))
+oITS_root_otutab <- oITS_otutab_1
+```
+
+
+# Change metadata to have correct rownames
+
+```{r}
+oITS_meta_1 <- oITS_meta
+rownames(oITS_meta_1) <- gsub("CR15", "CR1.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR25", "TR2.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR35", "TR3.5", rownames(oITS_meta_1))
+oITS_meta <- oITS_meta_1
+
+oITS_meta_1 <- oITS_soil_meta
+rownames(oITS_meta_1) <- gsub("CR15", "CR1.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR25", "TR2.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR35", "TR3.5", rownames(oITS_meta_1))
+oITS_soil_meta <- oITS_meta_1
+
+oITS_meta_1 <- oITS_rhizo_meta
+rownames(oITS_meta_1) <- gsub("CR15", "CR1.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR25", "TR2.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR35", "TR3.5", rownames(oITS_meta_1))
+oITS_rhizo_meta <- oITS_meta_1
+
+oITS_meta_1 <- oITS_root_meta
+rownames(oITS_meta_1) <- gsub("CR15", "CR1.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR25", "TR2.5", rownames(oITS_meta_1))
+rownames(oITS_meta_1) <- gsub("TR35", "TR3.5", rownames(oITS_meta_1))
+oITS_root_meta <- oITS_meta_1
+```
+
+
+# add metadata ITS
+
+```{r}
+# new metadata with tree, full soil, and daymet added
+full_meta <- read_delim("~/Desktop/R/incline/new_full_metadata.csv", delim = ",")
+full_meta <- full_meta %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "sample_id")
+
+oITS_meta_samples <- oITS_meta[,-(1:3)]
+oITS_meta_test <- merge(oITS_meta_samples, full_meta, by = 0)  # removes all... why?
+oITS_meta <- oITS_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+oITS_soil_meta_samples <- oITS_soil_meta[,-(1:3)]
+oITS_soil_meta_test <- merge(oITS_soil_meta_samples, full_meta, by = 0)
+oITS_soil_meta <- oITS_soil_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+oITS_rhizo_meta_samples <- oITS_rhizo_meta[,-(1:3)]
+oITS_rhizo_meta_test <- merge(oITS_rhizo_meta_samples, full_meta, by = 0)
+oITS_rhizo_meta <- oITS_rhizo_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+oITS_root_meta_samples <- oITS_root_meta[,-(1:3)]
+oITS_root_meta_test <- merge(oITS_root_meta_samples, full_meta, by = 0)
+oITS_root_meta <- oITS_root_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+```
+
+# add metadata 16S
+
+```{r}
+# new metadata with tree, full soil, and daymet added
+full_meta <- read_delim("~/Desktop/R/incline/new_full_metadata.csv", delim = ",")
+full_meta <- full_meta %>% 
+  remove_rownames %>% 
+  column_to_rownames(var = "sample_id")
+
+o16S_meta_samples <- o16S_meta[,-(1:3)]
+o16S_meta_test <- merge(o16S_meta_samples, full_meta, by = 0)  # removes all... why?
+o16S_meta <- o16S_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_soil_meta_samples <- o16S_soil_meta[,-(1:3)]
+o16S_soil_meta_test <- merge(o16S_soil_meta_samples, full_meta, by = 0)
+o16S_soil_meta <- o16S_soil_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_rhizo_meta_samples <- o16S_rhizo_meta[,-(1:3)]
+o16S_rhizo_meta_test <- merge(o16S_rhizo_meta_samples, full_meta, by = 0)
+o16S_rhizo_meta <- o16S_rhizo_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+
+o16S_root_meta_samples <- o16S_root_meta[,-(1:3)]
+o16S_root_meta_test <- merge(o16S_root_meta_samples, full_meta, by = 0)
+o16S_root_meta <- o16S_root_meta_test %>%
+  remove_rownames %>%
+  column_to_rownames(var = "Row.names")
+```
+
+
+####################### Set Parameters ########################
+
+
+# set parameters for ITS
+
+```{r}
+# full ITS
+term <- "oITS_"
+tab <- oITS_otutab
+tax <- oITS_tax
+meta <- oITS_meta
+# ITS bulk soil only
+term <- "oITS_soil_"
+tab <- oITS_soil_otutab
+tax <- oITS_soil_tax
+meta <- oITS_soil_meta
+# ITS rhizo only
+term <- "oITS_rhizo_"
+tab <- oITS_rhizo_otutab
+tax <- oITS_rhizo_tax
+meta <- oITS_rhizo_meta
+# ITS roots only
+term <- "oITS_root_"
+tab <- oITS_root_otutab
+tax <- oITS_root_tax
+meta <- oITS_root_meta
+```
+
+# set parameters for 16S
+
+```{r}
+# full 16S
+term <- "o16S_"
+tab <- o16S_otutab
+tax <- o16S_tax
+meta <- o16S_meta
+# 16S bulk soil only
+term <- "o16S_soil_"
+tab <- o16S_soil_otutab
+tax <- o16S_soil_tax
+meta <- o16S_soil_meta
+# 16S rhizosphere only
+term <- "o16S_rhizo_"
+tab <- o16S_rhizo_otutab
+tax <- o16S_rhizo_tax
+meta <- o16S_rhizo_meta
+# 16S roots only
+term <- "o16S_root_"
+tab <- o16S_root_otutab
+tax <- o16S_root_tax
+meta <- o16S_root_meta
+```
+
+
+
+
+
+
+################# Streamlined Analysis from Parameters #########################
+
+########################### Diversity Analysis #################################
+
+### Alpha Diversity
+
+# GLM Anovas
+
+Calculate Shannon Diversity
+```{r}
+# GLM of the alpha diversity by site
+# calculate shannon index
+shan <- vegan::diversity(t(tab), index = "shannon")
+# make data frame with metadata and shannon index
+shan_df <- cbind(meta, shan)
+```
+
+Site and DAYMET factors
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM
+shan_glm <- glm(shan ~ site + niche + site:niche, data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# with precip
+# linear correlation tests
+shan_cor <- cor.test(shan_df$shan, shan_df$`decade_ave_prcp (mm/day)`)
+shan_cor
+# with temp 
+shan_df_test <- shan_df %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# linear correlation tests
+shan_cor <- cor.test(shan_df_test$shan, shan_df_test$decade_ave_t)
+shan_cor
+# with elevation
+shan_cor <- cor.test(shan_df$shan, shan_df$altitude)
+shan_cor
+```
+
+
+Niche Included
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM
+shan_glm <- glm(shan ~ niche + site + watershed + 
+                  niche:site + niche:watershed + site:watershed +
+                  niche:site:watershed, 
+                  data = shan_df)
+# GLM
+shan_glm <- glm(shan ~ niche + site + niche:site, data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_niche_site.csv"))
+
+# GLM just watershed
+shan_glm <- glm(shan ~ watershed + niche + watershed:niche, 
+                  data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_watershed_niche.csv"))
+```
+
+Non-niche. Can run individually on different niches
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM just site.x
+shan_glm <- glm(shan ~ site, 
+                  data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_site.csv"))
+
+# GLM just watershed
+shan_glm <- glm(shan ~ watershed, 
+                  data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_watershed.csv"))
+
+# GLM
+#shan_glm <- glm(shan ~ sample_type + time + sample_type:time, # sample_type, time, and their cross are the fixed variables
+#                          data = shan_df, strata = shan_df$day) # in this case we are adding day as a random variable
+
+# GLM with soil factors
+shan_glm <- glm(shan ~ Tmin..oC. + Tmax..oC. + Tavg..oC. + Prec..mm. + 
+                  base_saturation + CEC + OM + C + N, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_soil_climate.csv")) 
+
+# GLM with soil factors
+shan_glm <- glm(shan ~ base_saturation + CEC + OM + C + N, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_soil.csv")) 
+
+# GLM with climate factors
+shan_glm <- glm(shan ~ Tmin..oC. + Tmax..oC. + Tavg..oC. + Prec..mm., 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_climate.csv")) 
+
+# GLM just N
+shan_glm <- glm(shan ~ Tavg..oC., 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_rain.csv")) 
+
+# GLM just altitude
+shan_glm <- glm(shan ~ altitude, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_altitude.csv")) 
+
+
+# GLM with climate as variables and soil as covariates
+shan_glm <- glm(shan ~ Tavg..oC., 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_rain.csv")) 
+
+# GLM just altitude
+shan_glm <- glm(shan ~ altitude, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_altitude.csv")) 
+```
+
+Full GLM (may be overfit)
+
+```{r}
+# failed overfit
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+shan_glm <- glm(shan ~ OM + C + N + base_saturation + Tmin..oC. + Tmax..oC. + Tavg..oC. + 
+                  Prec..mm. + altitude + watershed + niche + watershed:niche, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon.csv")) 
+
+# switching watershed for site
+# GLM with climate factors
+shan_glm <- glm(shan ~ OM + C + N + base_saturation + Tmin..oC. + Tmax..oC. + Tavg..oC. + 
+                  Prec..mm. + altitude + site + niche + site:niche, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon_full.csv"))
+```
+
+Full GLM without niche
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+shan_glm <- glm(shan ~ OM + C + N + base_saturation + Tmin..oC. + Tmax..oC. + Tavg..oC. + 
+                  Prec..mm. + altitude + watershed, 
+                data = shan_df)
+# anova
+shan_anova <- car::Anova(shan_glm, test.statistic = "F") ## If it's masked, specify car package
+# output as a dataframe
+shan_tidy <- tidy(shan_anova)
+shan_tidy
+# you can write a tidy dataframe as a .csv file 
+write_csv(shan_tidy, paste0(term, "glm_shannon.csv")) 
+```
+For all together and soil only and roots only, nothing is significant
+For rhizo, precip is significant and OM is borderline
+
+# Tukey HSD
+
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# Tukey HSD
+hsd_niche <- HSD.test(aov(shan ~ niche, data = shan_df), 
+                          "niche", group = T)
+hsd_watershed <- HSD.test(aov(shan ~ watershed, data = shan_df), "watershed", group = T)
+hsd_site <- HSD.test(aov(shan ~ site, data = shan_df), "site", group = T)
+
+hsd_niche
+hsd_watershed
+hsd_site
+hsd_niche_groups <- hsd_niche$groups
+hsd_watershed_groups <- hsd_watershed$groups
+hsd_site_groups <- hsd_site$groups
+# write dataframes of the HSD data
+write_csv(hsd_niche_groups, paste0(term, "hsd_niche.csv"))
+write_csv(hsd_watershed_groups, paste0(term, "hsd_watershed.csv"))
+write_csv(hsd_site_groups, paste0(term, "hsd_site.csv"))
+```
+
+
+# Plots
+
+## Niche and Site boxplot
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# reorder niche
+# reorder soil
+shan_df_test <- shan_df
+shan_df_test$niche <- factor(shan_df_test$niche, levels = c("soil", "rhizo", "roots"))
+# reorder site
+shan_df_test$site <- factor(shan_df_test$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# scatter plot
+plot <- ggplot(shan_df_test, aes(x = site, color = niche, y = shan)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Site and Niche") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+
+# you can save plot with this code
+ggsave(paste0(term, "shannon_niche_site.png"), width = 10, height = 5)
+```
+
+# GLM shannon plots with daymet variables
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# set parameter
+term <- "o16S_"
+tab <- o16S_otutab
+tax <- o16S_tax
+meta <- o16S_meta
+# calculate shannon index
+shan <- vegan::diversity(t(tab), index = "shannon")
+# make data frame with metadata and shannon index
+shan_df <- cbind(meta, shan)
+# reorder soil
+shan_df_test <- shan_df
+shan_df_test$niche <- factor(shan_df_test$niche, levels = c("soil", "rhizo", "roots"))
+# decade precipitation plot
+plot1 <- ggplot(shan_df_test, aes(x = `decade_ave_prcp (mm/day)`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot1
+# you can save plot with this code
+ggsave(paste0(term, "shannon_decade_rain.png"), width = 7, height = 5)
+
+# decade temp
+# mutate to add average temperatures for each time frame
+shan_df_test <- shan_df_test %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# decade temp plot
+plot2 <- ggplot(shan_df_test, aes(x = `decade_ave_t`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Temperature (C)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot2
+# you can save plot with this code
+ggsave(paste0(term, "shannon_decade_temp.png"), width = 7, height = 5)
+
+# elevation plot
+plot3 <- ggplot(shan_df_test, aes(x = altitude, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Elevation (m)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot3
+# you can save plot with this code
+ggsave(paste0(term, "shannon_elevation.png"), width = 7, height = 5)
+
+# set parameter
+term <- "oITS_"
+tab <- oITS_otutab
+tax <- oITS_tax
+meta <- oITS_meta
+# calculate shannon index
+shan <- vegan::diversity(t(tab), index = "shannon")
+# make data frame with metadata and shannon index
+shan_df <- cbind(meta, shan)
+# reorder soil
+shan_df_test <- shan_df
+shan_df_test$niche <- factor(shan_df_test$niche, levels = c("soil", "rhizo", "roots"))
+# decade precipitation plot
+plot4 <- ggplot(shan_df_test, aes(x = `decade_ave_prcp (mm/day)`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot4
+# you can save plot with this code
+ggsave(paste0(term, "shannon_decade_rain.png"), width = 7, height = 5)
+
+# decade temp
+# mutate to add average temperatures for each time frame
+shan_df_test <- shan_df_test %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# decade temp plot
+plot5 <- ggplot(shan_df_test, aes(x = `decade_ave_t`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Temperature (C)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot5
+# you can save plot with this code
+ggsave(paste0(term, "shannon_decade_temp.png"), width = 7, height = 5)
+
+# elevation plot
+plot6 <- ggplot(shan_df_test, aes(x = altitude, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Elevation (m)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot6
+# you can save plot with this code
+ggsave(paste0(term, "shannon_elevation.png"), width = 7, height = 5)
+
+# all together
+full_plot <- ggarrange(plot1, plot2, plot3, plot4, plot5, plot6, 
+                       nrow = 2, ncol = 3, common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave(paste0(term, "shannon_daymet_full.png"), width = 25, height = 10)
+```
+
+
+Precipitation
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot
+plot <- ggplot(shan_df, aes(x = `decade_ave_prcp (mm/day)`, color = watershed, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("Shannon Diversity") + 
+  scale_color_manual(values = c("#2E86C1", "#BA4A00")) + 
+  scale_fill_manual(values = c("#2E86C1", "#BA4A00")) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave(paste0(term, "shannon_rain_watershed.png"), width = 7, height = 5)
+
+# scatter plot
+plot <- ggplot(shan_df_test, aes(x = `decade_ave_prcp (mm/day)`, color = niche, 
+                                 fill = niche, y = shan)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("Shannon Diversity") + 
+  scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
+  scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave(paste0(term, "shannon_rain_niche.png"), width = 7, height = 5)
+```
+
+Organic Matter
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot
+plot <- ggplot(shan_df, aes(x = OM, color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Organic Matter") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_om.png"), width = 7, height = 5)
+```
+
+Nitrogen
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot by watershed
+plot <- ggplot(shan_df_test, aes(x = N, color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Nitrogen") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_N_watershed.png"), width = 7, height = 5)
+
+# by niche
+plot <- ggplot(shan_df_test, aes(x = N, color = niche, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Nitrogen") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_N_niche.png"), width = 7, height = 5)
+```
+
+Elevation
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot by watershed
+plot <- ggplot(shan_df_test, aes(x = altitude, color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Altitude (m)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_altitude_watershed.png"), width = 7, height = 5)
+
+# by niche
+plot <- ggplot(shan_df_test, aes(x = altitude, color = niche, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Altitude (m)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_altitude_niche.png"), width = 7, height = 5)
+```
+
+Temperature
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot by watershed
+plot <- ggplot(shan_df_test, aes(x = Tavg..oC., color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Average Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_watershed.png"), width = 7, height = 5)
+
+# by niche
+plot <- ggplot(shan_df_test, aes(x = Tavg..oC., color = niche, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Average Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_niche.png"), width = 7, height = 5)
+```
+
+Temperature (min)
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot by watershed
+plot <- ggplot(shan_df_test, aes(x = Tmin..oC., color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Minimum Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_min_watershed.png"), width = 7, height = 5)
+
+# by niche
+plot <- ggplot(shan_df_test, aes(x = Tmin..oC., color = niche, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Minimum Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_min_niche.png"), width = 7, height = 5)
+```
+
+Temperature (max)
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# scatter plot by watershed
+plot <- ggplot(shan_df_test, aes(x = Tmax..oC., color = watershed, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Maximum Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_max_watershed.png"), width = 7, height = 5)
+
+# by niche
+plot <- ggplot(shan_df_test, aes(x = Tmax..oC., color = niche, y = shan)) + 
+  geom_point() + geom_smooth(method = lm, se = FALSE, fullrange = TRUE) + 
+  xlab("Maximum Temperature (C)") + ylab("Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645"))
+# you can save plot with this code
+ggsave(paste0(term, "shannon_temp_max_niche.png"), width = 7, height = 5)
+```
+
+### Beta Diversity
+
+## Tidying up the models
+
+# PERMANOVA (just the categorical variables of interest)
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# permanova model
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ niche + site + 
+                       niche:site,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_niche_site.csv"))
+```
+
+# PERMANOVA (just site for individual niche compartments)
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# permanova model
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ site,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_site.csv"))
+```
+
+# Full GLM
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# mutate to add average temperatures for each time frame
+meta_1 <- meta %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# make matrix
+ttab <- t(tab)
+x <- merge(meta_1, ttab, by = "row.names")
+# run model
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_t` + Fe +
+                `decade_ave_prcp (mm/day)` + `pH 2` + Cu + Na + CN + 
+                N.y + VPDleaf,
+                          data = x, by = "terms")
+lm
+lm_df <- tidy(lm)
+lm_df
+# save as a dataframe
+write_csv(lm_df, paste0(term, "lm.csv"))
+```
+
+CCA with only variables from glm
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# mutate to add average temperatures for each time frame
+meta_1 <- meta %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# make matrix
+ttab <- t(tab)
+x <- merge(meta_1, ttab, by = "row.names")
+# stitch meta to x
+meta_1 <- meta_1 %>%
+  tibble::rownames_to_column("Row.names")
+# reformat metadata for CCA to include only environmental variables
+meta_2 <- meta_1 %>%
+  as_tibble() %>% # removes row names
+  select_if(is.numeric) %>%
+  select(-c(1)) # removing tree number
+# select only the variables from the glm
+meta_3 <- meta_2 %>%
+  select(`decade_ave_t`, Fe, `decade_ave_prcp (mm/day)`, `pH 2`, Cu, Na, CN, N.y, VPDleaf) %>%
+  rename(`decade_ave_t` = "Temperature", `decade_ave_prcp (mm/day)` = "Precipitation",
+         `pH 2` = "pH", N.y = "N")
+# check data input
+x_cut <- x[ ,(ncol(meta_1) + 2):ncol(x)]
+# check dimensions
+dim(meta_3)
+dim(x_cut)
+# data for CCA
+species_data <- x_cut
+env_data <- meta_3
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genusv
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = meta_1$Row.names
+# combine with sample data
+veg_4 <- merge(veg_3, meta_1)
+```
+
+clean plot in ggplot
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# Relevel points by site
+veg_4 <- veg_4 %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# make figure 
+cca_plot <- ggplot() + 
+  geom_point(data = veg_4, aes(x = CCA1, y = CCA2, color = site)) + 
+   geom_segment(data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("16S CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot
+cca_plot + scale_fill_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                                       "#666E73","#746860","#82624D","#905C39",
+                                       "#9E5626","#AC5013","#BA4A00")) + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00"))
+# save figure
+ggsave(paste0(term, "CCA_key_variables.png"), width = 6, height = 4)
+```
+
+
+
+# Distance matrix test (for continuous variables)
+Testing variables individually for significance
+Temperature test
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# mutate to add average temperatures for each time frame
+meta_1 <- meta %>%
+  mutate(month_ave_t = (`month_ave_tmax (deg c)` + `month_ave_tmin (deg c)`)/2) %>%
+  mutate(year_ave_t = (`year_ave_tmax (deg c)` + `year_ave_tmin (deg c)`)/2) %>%
+  mutate(decade_ave_t = (`decade_ave_tmax (deg c)` + `decade_ave_tmin (deg c)`)/2)
+# make matrix
+ttab <- t(tab)
+x <- merge(meta_1, ttab, by = "row.names")
+# test model (temperature)
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Tavg_yearly`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `month_ave_tmax (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `month_ave_tmin (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `year_ave_tmax (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `year_ave_tmin (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_tmax (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_tmin (deg c)`,
+                          data = x, by = "terms")
+lm
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `month_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0472
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `year_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0485
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0483
+```
+all temp terms were significant. Most significant was Tavg_yearly
+
+Plot temps:
+```{r}
+# relevel sites
+meta_2 <- meta_1 %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# rename
+meta_2 <- meta_2 %>%
+  dplyr::rename(month = `month_ave_t`,
+                year = `year_ave_t`,
+                decade = `decade_ave_t`)
+# pivot long
+meta_2 <- meta_2 %>%
+  pivot_longer(cols = c(month, year, decade), names_to = "time_frame", 
+               values_to = "average temperature (deg C)")
+# relevel precip
+meta_2 <- meta_2 %>% 
+  mutate(time_frame = fct_relevel(time_frame, "month", "year", "decade"))
+
+# plot
+plot <- ggplot(meta_2, aes(x = site, color = time_frame, y = `average temperature (deg C)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average temperature (deg C)") + 
+  scale_color_manual(values = c("#381631", "#5c3053", "#7a4e71")) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_ave_temp.png", 
+       width = 9, height = 4)
+```
+
+
+Precipitation test
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `month_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0419
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `year_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0367
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0398
+```
+All significant, month the most but I think I should be consistent on timeframes
+
+plot precipitations:
+```{r}
+# relevel sites
+meta_2 <- meta_1 %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# rename
+meta_2 <- meta_2 %>%
+  dplyr::rename(month = `month_ave_prcp (mm/day)`,
+                year = `year_ave_prcp (mm/day)`,
+                decade = `decade_ave_prcp (mm/day)`)
+# pivot long
+meta_2 <- meta_2 %>%
+  pivot_longer(cols = c(month, year, decade), names_to = "time_frame", 
+               values_to = "average precipitation (mm/day)")
+# relevel precip
+meta_2 <- meta_2 %>% 
+  mutate(time_frame = fct_relevel(time_frame, "month", "year", "decade"))
+
+# plot
+plot <- ggplot(meta_2, aes(x = site, color = time_frame, y = `average precipitation (mm/day)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average precipitation (mm/day)") + 
+  scale_color_manual(values = c("#381631", "#5c3053", "#7a4e71")) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_precip.png", width = 9, height = 4)
+```
+
+soil tests
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# make matrix
+ttab <- t(tab)
+x <- merge(meta_1, ttab, by = "row.names")
+# test model (soil)
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm # r2 = .0421
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm # r2 = .0386
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `pH 2`,
+                          data = x, by = "terms")
+lm # r2 = .0368
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm # r2 = .0339
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm # r2 = .0325
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm # r2 = .0301
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `OM 3`,
+                          data = x, by = "terms")
+lm # r2 = .0297
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm # r2 = .0297
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm # r2 = .0288
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm # r2 = .0287
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm # r2 = .0285
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm # r2 = .0278
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm # r2 = .0276
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm # r2 = .0268
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm # r2 = .0267
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm # r2 = .0266
+```
+
+tree stress
+```{r}
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm # r2 = .0299
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm # r2 = .0261
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm # r2 = .0225
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm # r2 = .0211
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm # r2 = .0202
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm # r2 = .0125
+
+# cut this one
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `RHchamb`,
+                          data = x, by = "terms")
+lm # r2 = .0305 (cut this one out just a standard?)
+```
+
+All terms:
+```{r}
+# test model (precipitation)
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `month_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0419
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `year_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0367
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0398
+
+# temp
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `month_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0472
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `year_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0485
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0483
+
+# soil
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm # r2 = .0421
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm # r2 = .0386
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `pH 2`,
+                          data = x, by = "terms")
+lm # r2 = .0368
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm # r2 = .0339
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm # r2 = .0325
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm # r2 = .0301
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `OM 3`,
+                          data = x, by = "terms")
+lm # r2 = .0297
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm # r2 = .0297
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm # r2 = .0288
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm # r2 = .0287
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm # r2 = .0285
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm # r2 = .0278
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm # r2 = .0276
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm # r2 = .0268
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm # r2 = .0267
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm # r2 = .0266
+
+# tree
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm # r2 = .0299
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Tleaf`,
+                          data = x, by = "terms")
+lm # r2 = .0261
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Ci`,
+                          data = x, by = "terms")
+lm # r2 = .0225
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `gsw`,
+                          data = x, by = "terms")
+lm # r2 = .0211
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `A`,
+                          data = x, by = "terms")
+lm # r2 = .0202
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Qin`,
+                          data = x, by = "terms")
+lm # r2 = .0125
+```
+
+ordered
+```{r}
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_t`,
+                          data = x, by = "terms")
+lm # r2 = .0483
+# elevation
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ altitude,
+                          data = x, by = "terms")
+lm # r2 = .0474
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Fe`,
+                          data = x, by = "terms")
+lm # r2 = .0421
+lm <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `decade_ave_prcp (mm/day)`,
+                          data = x, by = "terms")
+lm # r2 = 0.0398
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CN`,
+                          data = x, by = "terms")
+lm # r2 = .0386
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `pH 2`,
+                          data = x, by = "terms")
+lm # r2 = .0368
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Na`,
+                          data = x, by = "terms")
+lm # r2 = .0339
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Cu`,
+                          data = x, by = "terms")
+lm # r2 = .0325
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `C.y`,
+                          data = x, by = "terms")
+lm # r2 = .0301
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `VPDleaf`,
+                          data = x, by = "terms")
+lm # r2 = .0299
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `OM 3`,
+                          data = x, by = "terms")
+lm # r2 = .0297 # cut OM, too correlated with CN
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `N.y`,
+                          data = x, by = "terms")
+lm # r2 = .0297
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Clay`,
+                          data = x, by = "terms")
+lm # r2 = .0288
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Silt`,
+                          data = x, by = "terms")
+lm # r2 = .0287
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mg`,
+                          data = x, by = "terms")
+lm # r2 = .0286
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Ca`,
+                          data = x, by = "terms")
+lm # r2 = .0285
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `CEC.y`,
+                          data = x, by = "terms")
+lm # r2 = .0278
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `P`,
+                          data = x, by = "terms")
+lm # r2 = .0276
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `K`,
+                          data = x, by = "terms")
+lm # r2 = .0268
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Mn`,
+                          data = x, by = "terms")
+lm # r2 = .0267
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `Sand`,
+                          data = x, by = "terms")
+lm # r2 = .0266 # cut sand too correlated with clay
+
+```
+
+checking collinearity
+```{r}
+cor.test(meta_1$decade_ave_t, meta_1$`decade_ave_prcp (mm/day)`, method = "pearson") # .205
+cor.test(meta_1$CN, meta_1$`pH 2`, method = "pearson") # -.386
+cor.test(meta_1$CN, meta_1$`OM 3`, method = "pearson") # .0835 
+cor.test(meta_1$`pH 2`, meta_1$Mg, method = "pearson") # .544
+cor.test(meta_1$Sand, meta_1$Clay, method = "pearson") # -.628 # too high
+cor.test(meta_1$CN, meta_1$Clay, method = "pearson") # -.270
+cor.test(meta_1$CN, meta_1$C.y, method = "pearson") # .127
+cor.test(meta_1$CN, meta_1$N.y, method = "pearson") # -.217
+cor.test(meta_1$Silt, meta_1$Clay, method = "pearson") # .153
+# testing the weather data 
+cor.test(meta_1$decade_ave_t, meta_1$year_ave_t, method = "pearson") # .999
+cor.test(meta_1$decade_ave_t, meta_1$month_ave_t, method = "pearson") # .953
+cor.test(meta_1$year_ave_t, meta_1$month_ave_t, method = "pearson") # .939
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$`year_ave_prcp (mm/day)`, method = "pearson") # .943
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$`month_ave_prcp (mm/day)`, method = "pearson") # .607
+cor.test(meta_1$`year_ave_prcp (mm/day)`, meta_1$`month_ave_prcp (mm/day)`, method = "pearson") # .531
+# testing altitude
+cor.test(meta_1$altitude, meta_1$decade_ave_t, method = "pearson") # -.996 # very strong... take out altitude
+cor.test(meta_1$altitude, meta_1$Fe, method = "pearson") # .342
+cor.test(meta_1$altitude, meta_1$`decade_ave_prcp (mm/day)`, method = "pearson") # -.182
+cor.test(meta_1$altitude, meta_1$`pH 2`, method = "pearson") # -.591 # strong corr
+cor.test(meta_1$altitude, meta_1$Cu, method = "pearson") # -.466
+cor.test(meta_1$altitude, meta_1$Na, method = "pearson") # -.0897
+cor.test(meta_1$altitude, meta_1$CN, method = "pearson") # .688 # strong corr
+cor.test(meta_1$altitude, meta_1$Clay, method = "pearson") # .0911
+cor.test(meta_1$altitude, meta_1$N.y, method = "pearson") # -.0584
+cor.test(meta_1$altitude, meta_1$VPDleaf, method = "pearson") # .487 
+# testing temp
+cor.test(meta_1$decade_ave_t, meta_1$Fe, method = "pearson") # -.378
+cor.test(meta_1$decade_ave_t, meta_1$`decade_ave_prcp (mm/day)`, method = "pearson") # .204
+cor.test(meta_1$decade_ave_t, meta_1$`pH 2`, method = "pearson") # .564 # strong corr
+cor.test(meta_1$decade_ave_t, meta_1$Cu, method = "pearson") # .436
+cor.test(meta_1$decade_ave_t, meta_1$Na, method = "pearson") # .0995
+cor.test(meta_1$decade_ave_t, meta_1$CN, method = "pearson") # -.666 # strong neg corr
+cor.test(meta_1$decade_ave_t, meta_1$Clay, method = "pearson") # -.103
+cor.test(meta_1$decade_ave_t, meta_1$N.y, method = "pearson") # .0553
+cor.test(meta_1$decade_ave_t, meta_1$VPDleaf, method = "pearson") # -.503 # strong neg corr
+# testing iron
+cor.test(meta_1$Fe, meta_1$`decade_ave_prcp (mm/day)`, method = "pearson") # -.724 strong neg corr
+cor.test(meta_1$Fe, meta_1$`pH 2`, method = "pearson") # .396
+cor.test(meta_1$Fe, meta_1$Cu, method = "pearson") # -.045
+cor.test(meta_1$Fe, meta_1$Na, method = "pearson") # .211
+cor.test(meta_1$Fe, meta_1$CN, method = "pearson") # .219
+cor.test(meta_1$Fe, meta_1$Clay, method = "pearson") # .371
+cor.test(meta_1$Fe, meta_1$N.y, method = "pearson") # -.248
+cor.test(meta_1$Fe, meta_1$VPDleaf, method = "pearson") # .357
+# testing precip
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$`pH 2`, method = "pearson") # -.622 # strong neg corr
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$Cu, method = "pearson") # .268
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$Na, method = "pearson") # -.631 # high neg cor
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$CN, method = "pearson") # -.0714
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$Clay, method = "pearson") # -.428
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$N.y, method = "pearson") # .460
+cor.test(meta_1$`decade_ave_prcp (mm/day)`, meta_1$VPDleaf, method = "pearson") # -.138
+# testing pH
+cor.test(meta_1$`pH 2`, meta_1$Cu, method = "pearson") # .310
+cor.test(meta_1$`pH 2`, meta_1$Na, method = "pearson") # .634 # high cor
+cor.test(meta_1$`pH 2`, meta_1$CN, method = "pearson") # -.386
+cor.test(meta_1$`pH 2`, meta_1$Clay, method = "pearson") # .406
+cor.test(meta_1$`pH 2`, meta_1$N.y, method = "pearson") # -.132
+cor.test(meta_1$`pH 2`, meta_1$VPDleaf, method = "pearson") # -.197
+# testing Cu
+cor.test(meta_1$Cu, meta_1$Na, method = "pearson") # .0421
+cor.test(meta_1$Cu, meta_1$CN, method = "pearson") # -.336
+cor.test(meta_1$Cu, meta_1$Clay, method = "pearson") # .224
+cor.test(meta_1$Cu, meta_1$N.y, method = "pearson") # .643 # high correlation
+cor.test(meta_1$Cu, meta_1$VPDleaf, method = "pearson") # -.016
+# testing Na
+cor.test(meta_1$Na, meta_1$CN, method = "pearson") # -.0751
+cor.test(meta_1$Na, meta_1$Clay, method = "pearson") # .676 # high correlation
+cor.test(meta_1$Na, meta_1$N.y, method = "pearson") # .146
+cor.test(meta_1$Na, meta_1$VPDleaf, method = "pearson") # -.245
+# testing CN
+cor.test(meta_1$CN, meta_1$Clay, method = "pearson") # -.270
+cor.test(meta_1$CN, meta_1$N.y, method = "pearson") # -.217
+cor.test(meta_1$CN, meta_1$VPDleaf, method = "pearson") # -.479
+# testing Clay
+cor.test(meta_1$Clay, meta_1$N.y, method = "pearson") # .516 # strong corr
+cor.test(meta_1$Clay, meta_1$VPDleaf, method = "pearson") # .007
+# testing N
+cor.test(meta_1$N.y, meta_1$VPDleaf, method = "pearson") # -.108
+```
+there are a considerable number of correlations which may be due to climate factors affecting processes (ex. iron accumulation in low precipitation sites). In writing consider that climate can be driving changes in soil which in turn may be driving changes in microbial communities. Climate can also be driving changes in microbial communities which may be driving changes in soil processes (ex. decomposition leading to different CN rates.)
+
+# Full GLM
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# run model
+lm <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `decade_ave_t` + Fe +
+                `decade_ave_prcp (mm/day)` + `pH 2` + Cu + Na + CN + 
+                N.y + VPDleaf,
+                          data = x, by = "terms")
+lm
+lm_df <- tidy(lm)
+lm_df
+# save as a dataframe
+write_csv(lm_df, paste0(term, "lm.csv"))
+```
+
+
+# PERMANOVA
+With niche (full set and subsetted by niche)
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# head(x)# head(x)row.names()
+
+# watershed and site
+# create and run PERMANOVA model
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ watershed + site + 
+                       watershed:site,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_watershed_site.csv"))
+```
+
+Full PERMANOVA (may be overfit)
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ OM + C + N + base_saturation + 
+                       Tmin..oC. + Tmax..oC. + Tavg..oC. + Prec..mm. + altitude + 
+                       watershed + niche + watershed:niche, 
+                data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# you can write a tidy dataframe as a .csv file 
+write_csv(perm_df, paste0(term, "permanova.csv")) 
+
+# Site and niche
+# GLM with climate factors
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ 
+                       niche + site + niche:site, 
+                data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# you can write a tidy dataframe as a .csv file 
+write_csv(perm_df, paste0(term, "permanova_site_niche.csv")) 
+```
+
+With niche (full set only)
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# head(x)# head(x)row.names()
+
+# niche, site 
+# create and run PERMANOVA model
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ niche + site + 
+                       niche:site,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_16S_niche_site.csv"))
+
+# watershed, niche 
+# create and run PERMANOVA model
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ niche + watershed + 
+                       niche:watershed,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_watershed_niche.csv"))
+```
+
+Full PERMANOVA without niche
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ OM + C + N + base_saturation + 
+                       Tmin..oC. + Tmax..oC. + Tavg..oC. + Prec..mm. + altitude + 
+                       site, 
+                data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# you can write a tidy dataframe as a .csv file 
+write_csv(perm_df, paste0(term, "permanova_nichesub.csv"))
+```
+
+PERMANOVA just site
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~  
+                       site, 
+                data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# you can write a tidy dataframe as a .csv file 
+write_csv(perm_df, paste0(term, "permanova_site.csv"))
+```
+
+PERMANOVA site as a variable, soil as covariates
+
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# GLM with climate factors
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ OM + C + N + base_saturation + 
+                       site, 
+                data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# you can write a tidy dataframe as a .csv file 
+write_csv(perm_df, paste0(term, "permanova_soil_site.csv"))
+```
+
+
+# NMDS
+
+Niche and Site
+
+```{r}
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# check data input
+x_cut <- x[ ,(ncol(meta) + 2):ncol(x)]
+# calculate NMDS
+nmds = metaMDS(decostand(x[ ,(ncol(meta) + 2):ncol(x)], method = "total"), 
+               distance = "bray", trymax = 999)
+nmds
+# plot the basic NMDS
+plot1 <- plot(nmds)
+# collect ellipses
+site_ellipses <- ordiellipse(plot1, groups = x$site, display = "sites", kind = "sd")
+niche_ellipses <- ordiellipse(plot1, groups = x$niche, display = "sites", kind = "sd")
+watershed_ellipses <- ordiellipse(plot1, groups = x$watershed, display = "sites", kind = "sd")
+# Save as long form objects
+site_ellipses_long <- ordiellipse.long(site_ellipses, grouping.name = "site")
+niche_ellipses_long <- ordiellipse.long(niche_ellipses, grouping.name = "niche")
+watershed_ellipses_long <- ordiellipse.long(watershed_ellipses, grouping.name = "watershed")
+```
+
+Import points 
+
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# extract NMDS scores (x and y coordinates)
+data.scores = as.data.frame(scores(nmds)$sites)
+# combine with metadata
+nmds_df <- data.frame(meta, data.scores)
+nmds_df <- data.frame(x, data.scores)
+nmds_df$`#OTU ID` <- rownames(nmds_df)
+write_csv(nmds_df, paste0(term, "nmds.csv"))
+# collect points
+points_long <- sites.long(plot1, env.data = meta)
+```
+
+NMDS ggplot with more features
+Niche (addressing the points scrambling by using nmds_df as the dataframe for the figure)
+
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# rename figure key
+#nmds_df_2 <- nmds_df %>%
+#  mutate(Inoculum = ifelse(Inoculum == "noinoc", "Control", "Inoculated"))
+#nmds_df_2$Inoculum <- factor(nmds_df_2$Inoculum, 
+#                                    levels = c("Control", "Inoculated"))
+
+# Relevel points by niche
+nmds_df_relevel <- nmds_df %>%
+  mutate(niche = fct_relevel(niche, "soil", "rhizo", "roots"))
+
+# Relevel ellipses by niche
+niche_ellipses_long <- niche_ellipses_long %>%
+  mutate(niche = fct_relevel(niche, "soil", "rhizo", "roots"))
+# make figure 
+nmds_plot <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = niche)) + 
+  geom_point() + 
+  geom_polygon(aes(x = axis1, y = axis2, color = niche), 
+               data = niche_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+#  stat_ellipse(aes(NMDS1, NMDS2, color = niche), type = "t", inherit.aes = FALSE) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot
+nmds_plot + scale_fill_manual(values=c("#a64551", "#a68a45", "#6ea645")) + 
+  scale_color_manual(values=c("#a64551", "#a68a45", "#6ea645"))
+# save figure
+ggsave(paste0(term, "NMDS_niche.png"), width = 6, height = 4)
+```
+
+watershed
+
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# rename figure key
+#nmds_df_2 <- nmds_df %>%
+#  mutate(Inoculum = ifelse(Inoculum == "noinoc", "Control", "Inoculated"))
+#nmds_df_2$Inoculum <- factor(nmds_df_2$Inoculum, 
+#                                    levels = c("Control", "Inoculated"))
+# make figure 
+nmds_plot <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = watershed)) + 
+  geom_point() + 
+  geom_polygon(aes(x = axis1, y = axis2, color = watershed), 
+               data = watershed_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name based on CAPs format
+nmds_plot + scale_fill_manual(values=c("#2E86C1", "#BA4A00")) + 
+  scale_color_manual(values=c("#2E86C1", "#BA4A00"))
+# save figure
+ggsave(paste0(term, "NMDS_watershed.png"), width = 6, height = 4)
+```
+
+Site
+
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# Relevel points by site
+points_long <- points_long %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# Relevel ellipses by site
+site_ellipses_long <- site_ellipses_long %>%
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# make figure 
+nmds_plot <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = site)) + 
+  geom_point() + 
+  geom_polygon(aes(x = axis1, y = axis2, color = site), 
+               data = site_ellipses_long, size = 0.5, show.legend = FALSE, fill = NA) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("NMDS watershed and site") + # title
+  xlab("NMDS1") + ylab("NMDS2") #axis name 
+nmds_plot
+nmds_plot + scale_fill_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                                       "#666E73","#746860","#82624D","#905C39",
+                                       "#9E5626","#AC5013","#BA4A00")) + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00"))
+# save figure
+ggsave(paste0(term, "NMDS_site.png"), width = 6, height = 4)
+```
+
+# CCA
+CCA Analysis
+```{r}
+# stitch meta to x
+meta_1 <- meta %>%
+  tibble::rownames_to_column("Row.names")
+# reformat metadata for CCA to include only environmental variables
+meta_2 <- meta_1 %>%
+  as_tibble() %>% # removes row names
+  select_if(is.numeric) %>%
+  select(-c(1)) # removing tree number
+# check data input
+x_cut <- x[ ,(ncol(meta) + 2):ncol(x)]
+# check dimensions
+dim(meta_2)
+dim(x_cut)
+# data for CCA
+species_data <- x_cut
+env_data <- meta_2
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genusv
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = meta_1$Row.names
+# combine with sample data
+veg_4 <- merge(veg_3, meta_1)
+```
+
+Clean CCA plot
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# Relevel points by site
+veg_4 <- veg_4 %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# make figure 
+cca_plot <- ggplot() + 
+  geom_point(data = veg_4, aes(x = CCA1, y = CCA2, color = site)) + 
+   geom_segment(data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("16S CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot
+cca_plot + scale_fill_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                                       "#666E73","#746860","#82624D","#905C39",
+                                       "#9E5626","#AC5013","#BA4A00")) + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00"))
+# save figure
+ggsave(paste0(term, "CCA_site.png"), width = 6, height = 4)
+```
+
+CCA with the new metadata with the full soil dataset and the weather data from DAYMET
+```{r}
+# stitch meta to x
+meta_1 <- meta %>%
+  tibble::rownames_to_column("Row.names")
+# reformat metadata for CCA to include only environmental variables
+meta_2 <- meta_1 %>%
+  as_tibble() %>% # removes row names
+  select_if(is.numeric) %>%
+  select(-c(1)) # removing tree number
+# check data input
+x_cut <- x[ ,(ncol(meta) + 2):ncol(x)]
+# check dimensions
+dim(meta_2)
+dim(x_cut)
+# data for CCA
+species_data <- x_cut
+env_data <- meta_2
+# run CCA
+cca_result <- cca(species_data, env_data)
+# summary of the data
+summary(cca_result)
+# rough plot
+plot(cca_result)
+#extracting the data as data frame; env data
+veg_1 = as.data.frame(cca_result$CCA$biplot)
+veg_1["env"] = row.names(veg_1)
+#extracting the data; genusv
+veg_2 = as.data.frame(cca_result$CCA$v)
+veg_2["genus"] = row.names(veg_2)
+# extracting sample points
+veg_3 <- as.data.frame(cca_result$CCA$u)
+veg_3["Row.names"] = meta_1$Row.names
+# combine with sample data
+veg_4 <- merge(veg_3, meta_1)
+```
+
+Clean plot
+```{r}
+# set path
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# Relevel points by site
+veg_4 <- veg_4 %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# make figure 
+cca_plot <- ggplot() + 
+  geom_point(data = veg_4, aes(x = CCA1, y = CCA2, color = site)) + 
+   geom_segment(data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))) +
+  geom_text_repel(data = veg_1,
+    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    color = "black", size = 3) +
+  theme_classic() + # better theme
+  geom_hline(yintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+  geom_vline(xintercept = 0, linetype = "dashed", 
+             alpha = 0.5, size = 0.3) + # line at 0
+#  ggtitle("16S CCA - site") + # title
+  xlab("CCA1") + ylab("CCA2") #axis name 
+cca_plot
+cca_plot + scale_fill_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                                       "#666E73","#746860","#82624D","#905C39",
+                                       "#9E5626","#AC5013","#BA4A00")) + 
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487","#666E73",
+                              "#746860","#82624D","#905C39","#9E5626","#AC5013",
+                              "#BA4A00"))
+# save figure
+ggsave(paste0(term, "CCA_site_new_meta.png"), width = 6, height = 4)
+```
+
+
+
+
+####################### Indicator Taxa Analysis ################################
+
+# ANCOM - BC
+
+```{r}
+# filter phyloseq object to...
+physeq16S_filt <- tax_filter(physeq16S,
+                             min_prevalence = 0.1, # only ASVs present in 10% of samples
+                             min_total_abundance = 3000) # only ASVs with at least 3000 reads
+# check dimensions of original and filtered dataset
+dim(as.data.frame(physeq16S@otu_table))
+dim(as.data.frame(physeq16S_filt@otu_table))
+```
+
+# filtered ancombc
+
+```{r}
+# run ancombc
+out_16S_filt = ancombc(data = physeq16S_filt, 
+              assay_name = "counts", 
+              tax_level = NULL, 
+              formula = "site", 
+              group = "site" )
+res_16S_filt = out_16S_filt$res
+ 
+View(res_16S_filt)
+res_global_16S_filt = out_16S_filt$res_global
+ 
+tab_diff_16S_filt = res_16S_filt$diff_abn
+ 
+write.csv(tab_diff_16S_filt, file = "~/Desktop/R/incline/qiime_results/analysis_results/16S_filt_ancom20.csv")
+
+samp_frac_16S_filt = out_16S_filt$samp_frac
+ samp_frac_16S_filt[is.na(samp_frac_16S_filt)] = 0 
+ log_obs_abn_16S_filt = log(out_16S_filt$feature_table + 1)
+ log_corr_abn_16S_filt = t(t(log_obs_abn_16S_filt) - samp_frac_16S_filt)
+ 
+write.csv(log_corr_abn_16S_filt, file = "~/Desktop/R/incline/qiime_results/analysis_results/16S_filt_ancom_log_corr_abun.csv")
+```
+
+# Reformat ANCOM - BC results
+
+```{r}
+# add taxonomy
+class(log_corr_abn_16S_filt)
+class(tax16S)
+corr <- as.dtax16Scorr <- as.data.frame(log_corr_abn_16S_filt)
+corr <- corr %>%
+  rownames_to_column(var = "otu")
+tax1 <- tax16S %>%
+  rownames_to_column(var = "otu")
+tax1 <- tax16S %>%
+  as_tibble() %>%
+  dplyr::rename(otu = 'Feature.ID')
+mat <- inner_join(corr, tax1)
+# average by phylum
+phylum <- mat %>% 
+  group_by(Phylum) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by class
+class <- mat %>% 
+  group_by(Class) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by order
+order <- mat %>% 
+  group_by(Order) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by family
+family <- mat %>% 
+  group_by(Family) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# rotate
+  # phylum
+phylum
+phy_dat <- as.data.frame(phylum)
+phy_dat <- phy_dat %>%
+  column_to_rownames(var = "Phylum")
+tphylum <- t(phy_dat)
+  # class
+class_dat <- as.data.frame(class)
+class_dat <- class_dat %>%
+  column_to_rownames(var = "Class")
+tclass <- t(class_dat)
+  # order
+order <- order[-(nrow(order)),] # there was an NA
+order_dat <- as.data.frame(order)
+order_dat <- order_dat %>%
+  column_to_rownames(var = "Order")
+torder <- t(order_dat)
+  # family
+family <- family[-(nrow(family)),] # there was an NA
+family_dat <- as.data.frame(family)
+family_dat <- family_dat %>%
+  column_to_rownames(var = "Family")
+tfamily <- t(family_dat)
+# add metadata
+meta_dat <- as.data.frame(meta)
+site_niche <- meta_dat[,c(2,4)]
+site_niche$site_niche <- paste(site_niche$site, site_niche$niche, sep = "_")
+site_niche <- as.data.frame(site_niche)
+site_niche$sample <- rownames(site_niche)
+  # phylum
+phy <- as.data.frame(tphylum)
+phy <- phy %>%
+  rownames_to_column(var = "sample")
+phy_meta <- inner_join(phy, site_niche)
+  # class
+class <- as.data.frame(tclass)
+class <- class %>%
+  rownames_to_column(var = "sample")
+class_meta <- inner_join(class, site_niche)
+  # order
+order <- as.data.frame(torder)
+order <- order %>%
+  rownames_to_column(var = "sample")
+order_meta <- inner_join(order, site_niche)
+  # family
+family <- as.data.frame(tfamily)
+family <- family %>%
+  rownames_to_column(var = "sample")
+family_meta <- inner_join(family, site_niche)
+# average by site
+  # phylum
+ancom_av_phy_site_niche <- phy_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # class
+ancom_av_class_site_niche <- class_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # order
+ancom_av_order_site_niche <- order_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # family
+ancom_av_family_site_niche <- family_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+```
+
+# Heatmap with ggplot
+
+```{r}
+### phylum
+# reformat
+ancom_gheat <- ancom_av_phy_site_niche %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_phy_site_niche)), names_to = "phylum")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+phy_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = phylum, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+phy_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/phylum_pheatmap_niche_16S_filt.png", 
+       height = 2.5, width = 14)
+
+### class
+# reformat
+ancom_gheat <- ancom_av_class_site_niche %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_class_site_niche)), names_to = "class")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+class_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = class, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+class_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/class_pheatmap_niche_16S_filt.png", 
+       height = 4, width = 14)
+
+### order
+# reformat
+ancom_gheat <- ancom_av_order_site_niche %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_order_site_niche)), names_to = "order")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+order_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = order, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+order_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/order_pheatmap_niche_16S_filt.png", 
+       height = 7, width = 14)
+
+### family
+# reformat
+ancom_gheat <- ancom_av_family_site_niche %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_family_site_niche)), names_to = "family")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+family_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = family, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+family_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/family_pheatmap_niche_16S_filt.png", 
+       height = 10, width = 14)
+```
+
+
+# ITS ANCOM - BC
+
+# filter data
+```{r}
+# filter phyloseq object to...
+physeqITS_filt <- tax_filter(physeqITS,
+                             min_prevalence = 0.1, # only ASVs present in 10% of samples
+                             min_total_abundance = 3000) # only ASVs with at least 3000 reads
+# check dimensions of original and filtered dataset
+dim(as.data.frame(physeqITS@otu_table))
+dim(as.data.frame(physeqITS_filt@otu_table))
+```
+
+# run ANCOM - BC
+```{r}
+# run ancombc
+out_ITS_filt = ancombc(data = physeqITS_filt, 
+              assay_name = "counts", 
+              tax_level = NULL, 
+              formula = "site", 
+              group = "site" )
+res_ITS_filt = out_ITS_filt$res
+ 
+View(res_ITS_filt)
+res_global_ITS_filt = out_ITS_filt$res_global
+ 
+tab_diff_ITS_filt = res_ITS_filt$diff_abn
+ 
+write.csv(tab_diff_ITS_filt, file = "~/Desktop/R/incline/qiime_results/analysis_results/ITS_filt_ancom20.csv")
+
+samp_frac_ITS_filt = out_ITS_filt$samp_frac
+ samp_frac_ITS_filt[is.na(samp_frac_ITS_filt)] = 0 
+ log_obs_abn_ITS_filt = log(out_ITS_filt$feature_table + 1)
+ log_corr_abn_ITS_filt = t(t(log_obs_abn_ITS_filt) - samp_frac_ITS_filt)
+ 
+write.csv(log_corr_abn_ITS_filt, file = "~/Desktop/R/incline/qiime_results/analysis_results/ITS_filt_ancom_log_corr_abun.csv")
+```
+
+
+# Format Data
+
+```{r}
+# add taxonomy
+class(log_corr_abn)
+class(tax)
+corr <- as.data.frame(log_corr_abn)
+corr <- corr %>%
+  rownames_to_column(var = "otu")
+tax1 <- tax %>%
+  rownames_to_column(var = "otu")
+mat <- inner_join(corr, tax1)
+# average by phylum
+phylum <- mat %>% 
+  group_by(Phylum) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by class
+class <- mat %>% 
+  group_by(Class) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by order
+order <- mat %>% 
+  group_by(Order) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by family
+family <- mat %>% 
+  group_by(Family) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# rotate
+  # phylum
+phylum <- phylum[-(nrow(phylum)),]
+phy_dat <- as.data.frame(phylum)
+phy_dat <- phy_dat %>%
+  column_to_rownames(var = "Phylum")
+tphylum <- t(phy_dat)
+  # class
+class <- class[-(nrow(class)),] # there was an NA
+class_dat <- as.data.frame(class)
+class_dat <- class_dat %>%
+  column_to_rownames(var = "Class")
+tclass <- t(class_dat)
+  # order
+order <- order[-(nrow(order)),] # there was an NA
+order_dat <- as.data.frame(order)
+order_dat <- order_dat %>%
+  column_to_rownames(var = "Order")
+torder <- t(order_dat)
+  # family
+family <- family[-(nrow(family)),] # there was an NA
+family_dat <- as.data.frame(family)
+family_dat <- family_dat %>%
+  column_to_rownames(var = "Family")
+tfamily <- t(family_dat)
+# add metadata
+meta_dat <- as.data.frame(meta)
+site_niche <- meta_dat[,c(2,4)]
+site_niche$site_niche <- paste(site_niche$site, site_niche$niche, sep = "_")
+site_niche <- as.data.frame(site_niche)
+site_niche$sample <- rownames(site_niche)
+  # phylum
+phy <- as.data.frame(tphylum)
+phy <- phy %>%
+  rownames_to_column(var = "sample")
+phy_meta <- inner_join(phy, site_niche)
+  # class
+class <- as.data.frame(tclass)
+class <- class %>%
+  rownames_to_column(var = "sample")
+class_meta <- inner_join(class, site_niche)
+  # order
+order <- as.data.frame(torder)
+order <- order %>%
+  rownames_to_column(var = "sample")
+order_meta <- inner_join(order, site_niche)
+  # family
+family <- as.data.frame(tfamily)
+family <- family %>%
+  rownames_to_column(var = "sample")
+family_meta <- inner_join(family, site_niche)
+# average by site
+  # phylum
+ancom_av_phy_site_niche_its <- phy_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # class
+ancom_av_class_site_niche_its <- class_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # order
+ancom_av_order_site_niche_its <- order_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # family
+ancom_av_family_site_niche_its <- family_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+```
+
+
+# Heatmap with ggplot
+
+```{r}
+### phylum
+# reformat
+ancom_gheat <- ancom_av_phy_site_niche_its %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_phy_site_niche_its)), names_to = "phylum")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+phy_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = phylum, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+phy_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/phylum_pheatmap_niche_its.png", 
+       height = 3, width = 14)
+
+### class
+# reformat
+ancom_gheat <- ancom_av_class_site_niche_its %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_class_site_niche_its)), names_to = "class")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+class_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = class, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+class_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/class_pheatmap_niche_its.png", 
+       height = 7, width = 14)
+
+### order
+# reformat
+ancom_gheat <- ancom_av_order_site_niche_its %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_order_site_niche_its)), names_to = "order")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+order_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = order, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+order_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/order_pheatmap_niche_its.png", 
+       height = 16, width = 14)
+
+### family
+# reformat
+ancom_gheat <- ancom_av_family_site_niche_its %>%
+  pivot_longer(cols = c(3:ncol(ancom_av_family_site_niche_its)), names_to = "family")
+# reorder site
+ancom_gheat$site <- factor(ancom_gheat$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+# reorder niche
+ancom_gheat$niche <- factor(ancom_gheat$niche, levels = c("soil", "rhizo", "roots"))
+# ggplot
+family_heat <- ggplot(data = ancom_gheat, mapping = aes(x = site, y = family, fill = value)) + 
+  geom_tile() +
+  scale_fill_gradient(low = "#f5f7f5", high = "#012401") +
+  theme_classic() +
+  facet_wrap(ancom_gheat$niche)
+family_heat
+# save
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/family_pheatmap_niche_its.png", 
+       height = 20, width = 14, limitsize = FALSE)
+```
+
+
+### Ternary Plot
+
+```{r}
+# add wet, high, dry climate classes to metadata
+meta_1 <- meta %>%
+  mutate(climate = case_when(
+    site == "CR1" ~ "wet",
+    site == "CR1.5" ~ "wet",
+    site == "CR2" ~ "wet",
+    site == "CR3" ~ "wet",
+    site == "CR4" ~ "high",
+    site == "TR4" ~ "high",
+    site == "TR3.5" ~ "high",
+    site == "TR3" ~ "high",
+    site == "TR2.5" ~ "dry",
+    site == "TR2" ~ "dry",
+    site == "TR1" ~ "dry"
+    ))
+# filter to climate only
+meta_climate <- meta_1 %>%
+  select("climate")
+# stitch to otutab
+ttab <- t(tab)
+x <- merge(meta_climate, ttab, by = "row.names")
+# row sums per climate type
+x_mutated <- x %>%
+  group_by(climate) %>%
+  summarize_if(is.numeric, sum, na.rm = TRUE)
+# reformat data
+tx <- t(x_mutated)
+colnames(tx) <- tx[1,]
+tx <- tx[-1,]
+class(tx)
+tx_1 <- as.data.frame(tx)
+tx_1$wet <- as.numeric(tx_1$wet)
+tx_1$high <- as.numeric(tx_1$high)
+tx_1$dry <- as.numeric(tx_1$dry)
+
+# add taxonomy
+tx_tax <- merge(tx_1, tax, by = "row.names")
+
+# filter to minimum 50 reads
+tx_tax_filt <- tx_tax %>%
+  filter(wet + high + dry > 50)
+
+# filtering to min 100 for bacteria roots for now (all sorts of random taxa popping up)
+tx_tax_filt <- tx_tax %>%
+  filter(wet + high + dry > 100)
+
+# total by phylum
+tx_tax_phy <- tx_tax_filt %>%
+  group_by(Phylum) %>%
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+
+# add relative abundances
+tx_tax_phy_rel <- tx_tax_phy %>%
+  mutate(total_abundance = wet + high + dry) %>%
+  mutate(WET = wet/total_abundance) %>%
+  mutate(HIGH = high/total_abundance) %>%
+  mutate(DRY = dry/total_abundance)
+
+# reorder
+tx_reord <- tx_tax_phy_rel %>%
+  arrange(desc(total_abundance))
+  
+# make ternary plot
+ggtern(data = tx_tax, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum))
+
+# make ternary plot of filtered data
+ggtern(data = tx_tax_filt, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum))
+
+# make ternary plot of phylums
+ggtern(data = tx_tax_phy, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum))
+
+# make ternary plot of phylum rel abun vs. total abun
+ggtern(data = tx_tax_phy_rel, aes(WET, HIGH, DRY)) +
+  geom_point(aes(color = Phylum, size = total_abundance)) + 
+  theme(legend.text = element_text(size = 8))
+
+# something wrong with NA keep an eye on the color coding
+
+# color key for fungi
+ggtern(data = tx_reord, aes(WET, HIGH, DRY)) +
+  geom_point(aes(color = Phylum, size = total_abundance)) + 
+  scale_color_manual(values = c(Basidiomycota = "#393B79", unidentified = "#636363", 
+                       Ascomycota = "#637939", `NA` = "#969696", 
+                       Mucoromycota = "#8C6D31", Mortierellomycota = "#843C39", 
+                       Rozellomycota = "#7B4173", Chytridiomycota = "#5254A3", 
+                       Monoblepharomycota = "#8CA252", Glomeromycota = "#BD9E39",
+                       Kickxellomycota = "#AD494A")) +
+  theme(legend.text = element_text(size = 8))
+
+# color key for bacteria
+ggtern(data = tx_reord, aes(WET, HIGH, DRY)) +
+  geom_point(aes(color = Phylum, size = total_abundance)) + 
+  scale_color_manual(values = c(Thaumarchaeota = "#393B79", Actinobacteria = "#637939",  
+                       Proteobacteria = "#8C6D31", Tenericutes = "#843C39", 
+                       Verrucomicrobia = "#7B4173", Acidobacteria = "#5254A3", 
+                       Firmicutes = "#8CA252", Bacteroidetes = "#BD9E39",
+                       Gemmatimonadetes = "#AD494A", Patescibacteria = "#A55194", 
+                       Chloroflexi = "#6B6ECF", Planctomycetes = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2")) +
+  theme(legend.text = element_text(size = 8))
+
+# save phylum ternary plot
+ggsave(paste0("~/Desktop/R/incline/qiime_results/analysis_results/", term, 
+              "tern.png"), width = 7, height = 7)
+```
+
+# Repeating ANCOMBC at phylum level
+
+set parameters
+
+```{r}
+# full ITS
+term <- "oITS_"
+tab <- oITS_otutab
+tax <- oITS_tax
+meta <- oITS_meta
+# ITS bulk soil only
+term <- "oITS_soil_"
+tab <- oITS_soil_otutab
+tax <- oITS_soil_tax
+meta <- oITS_soil_meta
+# ITS rhizo only
+term <- "oITS_rhizo_"
+tab <- oITS_rhizo_otutab
+tax <- oITS_rhizo_tax
+meta <- oITS_rhizo_meta
+# ITS roots only
+term <- "oITS_root_"
+tab <- oITS_root_otutab
+tax <- oITS_root_tax
+meta <- oITS_root_meta
+
+# full 16S
+term <- "o16S_"
+tab <- o16S_otutab
+tax <- o16S_tax
+meta <- o16S_meta
+# 16S bulk soil only
+term <- "o16S_soil_"
+tab <- o16S_soil_otutab
+tax <- o16S_soil_tax
+meta <- o16S_soil_meta
+# 16S rhizo only
+term <- "o16S_rhizo_"
+tab <- o16S_rhizo_otutab
+tax <- o16S_rhizo_tax
+meta <- o16S_rhizo_meta
+# 16S roots only
+term <- "o16S_root_"
+tab <- o16S_root_otutab
+tax <- o16S_root_tax
+```
+
+change order
+```{r}
+class(meta_1$climate)
+meta_rel <- meta_1
+meta_rel$climate <- as.factor(meta_rel$climate)
+meta_rel <- meta_rel %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry"))
+```
+
+transforming the tab
+```{r}
+# add pseudo counts
+tab_1 <- tab + 1
+# tss norm
+tab_tss <- tab_1/(rowSums(tab_1))
+```
+
+
+make phyloseq object with climate type variables
+
+```{r}
+# create phyloseq object
+physeq <- phyloseq(
+  otu_table(tab_tss, taxa_are_rows = T),
+  tax_table(as.data.frame(tax) %>% 
+              as.matrix()),
+  sample_data(meta_1)) %>% 
+  subset_taxa(Kingdom != "unidentified")
+```
+
+filter data
+```{r}
+# filter phyloseq object to...
+physeq_filt <- tax_filter(physeq,
+                             min_prevalence = 0.1, # only ASVs present in 10% of samples
+                             min_total_abundance = 50) # only ASVs with at least 3000 reads
+#try tss normalization instead of filtering
+physeq_tss <- transform_sample_counts(physeq,
+                                      )
+physeq_tss <- phyloseq_standardize_otu_abundance(physeq, method = "total")
+# check dimensions of original and filtered dataset
+dim(as.data.frame(physeq@otu_table))
+dim(as.data.frame(physeq_filt@otu_table))
+physeq@sam_data
+```
+
+run ANCOM - BC
+```{r}
+# run ancombc
+out_filt = ancombc(data = physeq, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+res_filt = out_filt$res
+ 
+View(res_filt)
+res_global_filt = out_filt$res_global
+ 
+tab_diff_filt = res_filt$diff_abn
+ 
+write.csv(tab_diff_filt, file = 
+            paste0("~/Desktop/R/incline/qiime_results/analysis_results/", 
+                   term, "phylum_filt_ancom20.csv"))
+
+samp_frac_filt = out_filt$samp_frac
+ samp_frac_filt[is.na(samp_frac_filt)] = 0 
+ log_obs_abn_filt = log(out_filt$feature_table + 1)
+ log_corr_abn_filt = t(t(log_obs_abn_filt) - samp_frac_filt)
+ 
+write.csv(log_corr_abn_filt, file = 
+            paste0("~/Desktop/R/incline/qiime_results/analysis_results/", 
+                   term, "phylum_filt_ancom_log_corr_abun.csv"))
+```
+
+Format Data
+
+```{r}
+# add taxonomy
+class(log_corr_abn)
+class(tax)
+corr <- as.data.frame(log_corr_abn)
+corr <- corr %>%
+  rownames_to_column(var = "otu")
+tax1 <- tax %>%
+  rownames_to_column(var = "otu")
+mat <- inner_join(corr, tax1)
+# average by phylum
+phylum <- mat %>% 
+  group_by(Phylum) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by class
+class <- mat %>% 
+  group_by(Class) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by order
+order <- mat %>% 
+  group_by(Order) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# average by family
+family <- mat %>% 
+  group_by(Family) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+# rotate
+  # phylum
+phylum <- phylum[-(nrow(phylum)),]
+phy_dat <- as.data.frame(phylum)
+phy_dat <- phy_dat %>%
+  column_to_rownames(var = "Phylum")
+tphylum <- t(phy_dat)
+  # class
+class <- class[-(nrow(class)),] # there was an NA
+class_dat <- as.data.frame(class)
+class_dat <- class_dat %>%
+  column_to_rownames(var = "Class")
+tclass <- t(class_dat)
+  # order
+order <- order[-(nrow(order)),] # there was an NA
+order_dat <- as.data.frame(order)
+order_dat <- order_dat %>%
+  column_to_rownames(var = "Order")
+torder <- t(order_dat)
+  # family
+family <- family[-(nrow(family)),] # there was an NA
+family_dat <- as.data.frame(family)
+family_dat <- family_dat %>%
+  column_to_rownames(var = "Family")
+tfamily <- t(family_dat)
+# add metadata
+meta_dat <- as.data.frame(meta)
+site_niche <- meta_dat[,c(2,4)]
+site_niche$site_niche <- paste(site_niche$site, site_niche$niche, sep = "_")
+site_niche <- as.data.frame(site_niche)
+site_niche$sample <- rownames(site_niche)
+  # phylum
+phy <- as.data.frame(tphylum)
+phy <- phy %>%
+  rownames_to_column(var = "sample")
+phy_meta <- inner_join(phy, site_niche)
+  # class
+class <- as.data.frame(tclass)
+class <- class %>%
+  rownames_to_column(var = "sample")
+class_meta <- inner_join(class, site_niche)
+  # order
+order <- as.data.frame(torder)
+order <- order %>%
+  rownames_to_column(var = "sample")
+order_meta <- inner_join(order, site_niche)
+  # family
+family <- as.data.frame(tfamily)
+family <- family %>%
+  rownames_to_column(var = "sample")
+family_meta <- inner_join(family, site_niche)
+# average by site
+  # phylum
+ancom_av_phy_site_niche_its <- phy_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # class
+ancom_av_class_site_niche_its <- class_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # order
+ancom_av_order_site_niche_its <- order_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+  # family
+ancom_av_family_site_niche_its <- family_meta %>% 
+  group_by(site, niche) %>% 
+  summarize_if(is.numeric, mean, na.rm = TRUE)
+```
+
+
+############################### Site Analysis ##################################
+
+### Plots of Site Factors
+To demonstrate the presence of an ecological stress gradient and examine soil variation across sites
+
+```{r}
+# site orientation
+full_meta
+plot <- ggplot(full_meta, aes(x = longitude, color = watershed, y = latitude, label = site)) + 
+  xlab("Longitude") + ylab("Latitude") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot + geom_text(check_overlap = TRUE) + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/lat_long.png", width = 6, height = 2.5)
+
+# relevel from left to right
+class(full_meta$site)
+
+full_meta <- full_meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+
+# altitude
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = altitude)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Altitude (m)") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/altitude.png", width = 9, height = 4)
+
+# precipitation
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = Prec..mm.)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Precipitation (mm)") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/precipitation.png", width = 9, height = 4)
+
+# flip temp to long format for temp graph
+meta_temp <- full_meta %>%
+  pivot_longer(cols = c(Tmin..oC., Tavg..oC., Tmax..oC.), names_to = "temp_cat", 
+               values_to = "temp")
+
+# temperature
+plot <- ggplot(meta_temp, aes(x = site, color = watershed, y = temp)) + 
+  geom_point() + geom_boxplot() +
+  xlab("Site") + ylab("Average Temperature (C)") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/temperature.png", width = 9, height = 4)
+
+# Organic Matter
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = OM)) + 
+  geom_point() + 
+  xlab("Site") + ylab("% Organic Matter") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/om.png", width = 9, height = 4)
+
+# Carbon
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = C)) + 
+  geom_point() + 
+  xlab("Site") + ylab("% Carbon") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/c.png", width = 9, height = 4)
+
+# Nitrogen
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = N)) + 
+  geom_point() + 
+  xlab("Site") + ylab("% Nitrogen") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/n.png", width = 9, height = 4)
+
+# Make C:N column
+meta_cn <- full_meta
+meta_cn$cn <- full_meta$C/full_meta$N
+
+# Carbon:Nitrogen
+plot <- ggplot(meta_cn, aes(x = site, color = watershed, y = cn)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Carbon:Nitrogen") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/cn.png", width = 9, height = 4)
+
+# base saturation
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = base_saturation)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Base Saturation") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/base_saturation.png", 
+       width = 9, height = 4)
+
+# CEC
+plot <- ggplot(full_meta, aes(x = site, color = watershed, y = CEC)) + 
+  geom_point() + 
+  xlab("Site") + ylab("CEC") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#2E86C1", "#BA4A00"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/cec.png", 
+       width = 9, height = 4)
+```
+
+
+########################### Site Analysis with DAYMET ##########################
+
+Precipitation
+```{r}
+# relevel sites
+meta <- meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# rename
+meta_1 <- meta %>%
+  dplyr::rename(month = `month_ave_prcp (mm/day)`,
+                year = `year_ave_prcp (mm/day)`,
+                decade = `decade_ave_prcp (mm/day)`)
+# pivot long
+meta_1 <- meta_1 %>%
+  pivot_longer(cols = c(month, year, decade), names_to = "time_frame", 
+               values_to = "average precipitation (mm/day)")
+# relevel precip
+meta_1 <- meta_1 %>% 
+  mutate(time_frame = fct_relevel(time_frame, "month", "year", "decade"))
+
+# plot
+plot <- ggplot(meta_1, aes(x = site, color = time_frame, y = `average precipitation (mm/day)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average precipitation (mm/day)") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+plot + scale_color_manual(values = c("#07215b", "#37609f", "#66a6e5"))
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_precip.png", width = 9, height = 4)
+```
+
+Average min and max Temperature (decade and year)
+```{r}
+# relevel sites
+meta <- meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# rename
+meta_1 <- meta %>%
+  dplyr::rename(month_max = `month_ave_tmax (deg c)`,
+                year_max = `year_ave_tmax (deg c)`,
+                decade_max = `decade_ave_tmax (deg c)`,
+                month_min = `month_ave_tmin (deg c)`,
+                year_min = `year_ave_tmin (deg c)`,
+                decade_min = `decade_ave_tmin (deg c)`)
+# pivot long
+meta_1 <- meta_1 %>%
+  pivot_longer(cols = c(month_max, year_max, decade_max, 
+                        month_min, year_min, decade_min), 
+               names_to = "time_frame", 
+               values_to = "average temperature (deg c)")
+# relevel temp
+meta_1 <- meta_1 %>% 
+  mutate(time_frame = fct_relevel(time_frame, "month_max", "month_min", 
+                                  "year_max", "year_min", 
+                                  "decade_max", "decade_min"))
+# filter to month
+meta_2 <- meta_1 %>%
+  filter(time_frame == "month_max" | time_frame == "month_min")
+# plot
+plot <- ggplot(meta_2, aes(x = site, color = time_frame, y = `average temperature (deg c)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average temperature range (deg C)") + ylim(0, 30) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot + scale_color_manual(values = c("#d17f32", "#326ad1"))
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_temp_range_month.png", 
+       width = 9, height = 4)
+# filter to month
+meta_2 <- meta_1 %>%
+  filter(time_frame == "year_max" | time_frame == "year_min")
+# plot
+plot <- ggplot(meta_2, aes(x = site, color = time_frame, y = `average temperature (deg c)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average temperature range (deg C)") + ylim(0, 30) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot + scale_color_manual(values = c("#d17f32", "#326ad1"))
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_temp_range_year.png", 
+       width = 9, height = 4)
+# filter to month
+meta_2 <- meta_1 %>%
+  filter(time_frame == "decade_max" | time_frame == "decade_min")
+# plot
+plot <- ggplot(meta_2, aes(x = site, color = time_frame, y = `average temperature (deg c)`)) + 
+  geom_point() + 
+  xlab("Site") + ylab("average temperature range (deg C)") + ylim(0, 30) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot + scale_color_manual(values = c("#d17f32", "#326ad1"))
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/daymet_temp_range_decade.png", 
+       width = 9, height = 4)
+```
+
+Site Altitude
+```{r}
+# plot
+plot <- ggplot(meta_2, aes(x = site, y = altitude), color = "black") + 
+  geom_point() + geom_path() +
+  xlab("Site") + ylab("Elevation (m)") +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/altitude.png", 
+       width = 8, height = 4)
+```
+
+
+###################### Site Analysis with full soil dataset ####################
+
+Big Soil Test PERMANOVA
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# head(x)# head(x)row.names()
+
+# watershed and site
+# create and run PERMANOVA model (add all terms)
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH 2` + base_saturation.y + 
+                       Ca + Cu + Fe + K + Mg + Mn + Na + P + 
+                       CEC.y + `OM 3` + C.y + N.y + Sand + Silt + Clay,
+                          data = x, by = "terms")
+permanova
+# cutting because too many terms
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH 2` +
+                       base_saturation.y + Cu + Ca + Fe + Mg + Mn + Na + P + 
+                       CEC.y + `OM 3` + C.y + N.y + Sand + Silt + Clay,
+                          data = x, by = "terms")
+# cutting because too many terms
+permanova <- adonis2(x[ ,(ncol(meta) + 2):ncol(x)] ~ `pH 2` + Fe + Mg + C.y + Silt + 
+                        Ca + P + base_saturation.y +
+                       CEC.y + Sand + Clay + N.y,
+                          data = x, by = "terms")
+# view PERMANOVA object
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_full_soil.csv"))
+```
+
+Filter to only the whole number sites
+```{r}
+setwd("~/Desktop/R/incline/qiime_results/analysis_results/")
+# build data table to perform PERMANOVA on. Should be meta plus pivot tab
+ttab <- t(tab)
+meta_1 <- meta %>%
+  mutate(C_N = C.y/N.y)
+x <- merge(meta_1, ttab, by = "row.names")
+# filter to whole number sites and reorder them
+x_filt <- x %>%
+  filter(site == "CR1" | site == "CR2" | site == "CR3" | site == "CR4" | 
+           site == "TR4" | site == "TR3" | site == "TR2" | site == "TR1") %>% 
+  filter(niche != "roots") # removing roots for now
+# permanova model
+permanova <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `pH 2` + base_saturation.y + 
+                       Ca + Cu + Fe + K + Mg + Mn + Na + P + 
+                       CEC.y + `OM 3` + C.y + N.y + Sand + Silt + Clay + C_N,
+                          data = x, by = "terms")
+# adjusting terms
+# permanova model
+permanova <- adonis2(x[ ,(ncol(meta_1) + 2):ncol(x)] ~ `pH 2` + Fe + Mg + Na +
+                       C_N + Sand + Clay + Silt,
+                          data = x, by = "terms")
+permanova
+perm_df <- tidy(permanova)
+perm_df
+# save as a dataframe
+write_csv(perm_df, paste0(term, "permanova_soil_rhizo_bulk_wholesite.csv"))
+```
+
+
+Big Soil Test Plot
+```{r}
+# relevel sites
+meta <- meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# rename
+# meta_1 <- meta %>%
+#   dplyr::rename(month = `month_ave_prcp (mm/day)`, year = `year_ave_prcp (mm/day)`)
+# pivot long
+meta_1 <- meta %>%
+  pivot_longer(cols = c(`pH 2`, base_saturation.y, Ca, Cu, Fe, K, Mg, Mn, Na, P, 
+                       CEC.y, `OM 3`, C.y, N.y, Sand, Silt, Clay), names_to = "soil", 
+               values_to = "value")
+
+# plot
+plot <- ggplot(meta_1, aes(x = site, y = value)) + 
+  geom_point() + 
+  facet_wrap(~soil, scales = "free") + 
+  xlab("Site") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 8),
+    text = element_text(size = 14),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/soil_tests_full.png", width = 18, height = 15)
+```
+
+Soil test with whole sites only (to avoid shallow sampling only from skewing the data)
+```{r}
+# pivot long
+meta_1 <- meta %>%
+  pivot_longer(cols = c(`pH 2`, base_saturation.y, Ca, Cu, Fe, K, Mg, Mn, Na, P, 
+                       CEC.y, `OM 3`, C.y, N.y, Sand, Silt, Clay), names_to = "soil", 
+               values_to = "value")
+# filter to whole number sites and reorder them
+meta_2 <- meta_1 %>%
+  filter(site == c("CR1", "CR2", "CR3", "CR4", "TR4", "TR3", "TR2", "TR1")) %>%
+  mutate(site = fct_relevel(site, "CR1", "CR2", "CR3", "CR4", "TR4", "TR3", "TR2", "TR1"))
+# plot
+plot <- ggplot(meta_2, aes(x = site, y = value)) + 
+  geom_point() + 
+  facet_wrap(~soil, scales = "free") + 
+  xlab("Site") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 8),
+    text = element_text(size = 14),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/soil_tests_whole_sites.png", width = 18, height = 15)
+```
+
+Filtering to the significant soil tests
+```{r}
+# add cn and filter
+meta_1 <- meta %>%
+  mutate(C_N = C.y/N.y) %>%
+  filter(site == "CR1" | site == "CR2" | site == "CR3" | site == "CR4" | 
+           site == "TR4" | site == "TR3" | site == "TR2" | site == "TR1") %>% 
+  filter(niche != "roots") %>%
+  pivot_longer(cols = c(`pH 2`, Fe, Mg, Na, C_N, Sand, Clay, Silt), # permanova terms
+               names_to = "soil", values_to = "value") %>%
+  mutate(soil = fct_relevel(soil, "pH 2", "Fe", "Mg", "Na", "C_N", "Sand", "Clay", "Silt"))
+# plot
+plot <- ggplot(meta_1, aes(x = site, y = value)) + 
+  geom_point() + 
+  facet_wrap(~soil, scales = "free") + 
+  xlab("Site") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 8),
+    text = element_text(size = 14),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/soil_sig_tests_whole_sites.png", width = 10, height = 8)
+```
+
+
+# adding copper
+```{r}
+# add cn and filter
+meta_1 <- meta %>%
+  mutate(C_N = C.y/N.y) %>%
+  filter(site == "CR1" | site == "CR2" | site == "CR3" | site == "CR4" | 
+           site == "TR4" | site == "TR3" | site == "TR2" | site == "TR1") %>% 
+  filter(niche != "roots") %>%
+  rename("pH 2" = "pH") %>%
+  rename("C_N" = "C:N") %>%
+  pivot_longer(cols = c(pH, Fe, Mg, `C:N`, Na, Cu, Sand, Clay, Silt), # permanova terms
+               names_to = "soil", values_to = "value") %>%
+  mutate(soil = fct_relevel(soil, "pH", "Fe", "Mg", "C:N", "Na", "Cu", "Sand", "Clay", "Silt")) 
+# plot
+plot <- ggplot(meta_1, aes(x = site, y = value)) + 
+  geom_point() + 
+  facet_wrap(~soil, scales = "free") + 
+  xlab("Site") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 8),
+    text = element_text(size = 14),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# you can save plot with this code
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/soil_sig_tests_whole_sites.png", width = 10, height = 8)
+```
+
+
+
+######################## Tree Photosynthesis Analysis ##########################
+
+A
+```{r}
+# relevel sites and add slopes
+meta_1 <- meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) 
+# a/gsw plot
+plot <- ggplot(meta_1, aes(x = site, y = A)) + 
+  geom_point() + 
+  xlab("Site") + ylab("A umol/m/s") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/a_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+gsw
+```{r}
+# gsw plot
+plot <- ggplot(meta_1, aes(x = site, y = gsw)) + 
+  geom_point() + 
+  xlab("Site") + ylab("gsw mol/m/s") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/gsw_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+VPD Leaf
+```{r}
+# VPD plot
+plot <- ggplot(meta_1, aes(x = site, y = VPDleaf)) + 
+  geom_point() + 
+  xlab("Site") + ylab("VPD (kPa)") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/VPD_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+Qin
+```{r}
+# Qin plot
+plot <- ggplot(meta_1, aes(x = site, y = Qin)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Qin") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/Qin_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+Tleaf
+```{r}
+# Tleaf plot
+plot <- ggplot(meta_1, aes(x = site, y = Tleaf)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Tleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/Tleaf_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+
+A/Ci
+```{r}
+# a/ci plot
+plot <- ggplot(meta_1, aes(x = site, y = Ci)) + 
+  geom_point() + 
+  xlab("Site") + ylab("Ci umol/mol") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/ci_stress_tolerance.png", 
+       width = 9, height = 4)
+```
+
+A/gsw (water use efficiency... higher means more stomatal closure ie more stress response)
+```{r}
+# relevel sites and add slopes
+meta_1 <- meta %>% 
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  mutate(a_gsw = A/gsw) %>%
+  mutate(a_ci = A/Ci)
+meta_1$a_gsw
+meta_1$a_ci
+# a/gsw plot
+plot <- ggplot(meta_1, aes(x = site, y = a_gsw)) + 
+  geom_point() + 
+  xlab("Site") + ylab("A umol/m/s / gsw mol/m/s") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/a_gsw_stress_tolerance.png", width = 9, height = 4)
+```
+
+A/Ci (stomatal limitation... should be a curve)
+```{r}
+# view raw
+ggplot(meta_1, aes(x = Ci, y = A)) + geom_point() + geom_smooth()
+# apply correction
+meta_1 <- meta_1 %>%
+  mutate(log_A = log(A))
+meta_1 <- meta_1 %>%
+  mutate(A2 = log(A)^2)
+# view correction
+ggplot(meta_1, aes(x = Ci, y = log_A)) + geom_point() + geom_smooth()
+ggplot(meta_1, aes(x = Ci, y = A2)) + geom_point() + geom_smooth()
+# none of the corrections are really helping it's still log shaped
+# a/ci plot
+plot <- ggplot(meta_1, aes(x = site, y = a_ci)) + 
+  geom_point() + 
+  xlab("Site") + ylab("A umol/m/s / Ci umol/mol") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+plot
+# save plot
+ggsave("~/Desktop/R/incline/qiime_results/analysis_results/a_ci_stress_tolerance.png", width = 9, height = 4)
+```
+
+# FEAST Source Tracking
+
+Install FEAST
+
+gitcreds::gitcreds_set()
+Current access token: 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
+
+```{r}
+devtools::install_github("cozygene/FEAST")
+library(FEAST)
+```
+
+Set parameters
+
+```{r}
+# full ITS
+term <- "oITS_"
+tab <- oITS_otutab
+tax <- oITS_tax
+meta <- oITS_meta
+# full 16S
+term <- "o16S_"
+tab <- o16S_otutab
+tax <- o16S_tax
+meta <- o16S_meta
+```
+
+Make data tables
+
+```{r}
+# bulk to rhizo + root
+
+# rhizo to root
+ # filter OTU table by treatment
+feast_tab <- tab %>%
+  select(contains(c("TR25_", "TR2_", "TR1_"))) %>%
+  select(contains(c("_roots", "_rhizo"))) %>%
+  mutate(total = rowSums(.)) %>%
+  filter(total > 30) %>%
+  select(-total)
+
+# make meta (Env (rhizo or root) SourceSink (Source or Sink) Env (Sink number))
+ # add environment
+meta_1 <- meta %>%
+  mutate(climate = case_when(
+    site == "CR1" ~ "wet",
+    site == "CR1.5" ~ "wet",
+    site == "CR2" ~ "wet",
+    site == "CR3" ~ "wet",
+    site == "CR4" ~ "high",
+    site == "TR4" ~ "high",
+    site == "TR3.5" ~ "high",
+    site == "TR3" ~ "high",
+    site == "TR2.5" ~ "dry",
+    site == "TR2" ~ "dry",
+    site == "TR1" ~ "dry"
+    ))
+ # filter to climate type
+meta_2 <- meta_1 %>%
+  filter(climate == "dry") # change climate type
+feast_meta <- meta_2 %>%
+  filter(niche.x != "soil") %>%
+  rename("Env" = "niche.x") %>%
+  mutate(SourceSink = case_when(
+    Env == "rhizo" ~ "Source", 
+    Env == "roots" ~ "Sink"
+  )) %>%
+  select("Env", "SourceSink") %>%
+  mutate(id = case_when(
+    Env == "rhizo" ~ NA,
+    Env == "roots" ~ 1
+  )) 
+feast_meta$Env <- as.factor(feast_meta$Env)
+feast_meta$SourceSink <- as.factor(feast_meta$SourceSink)
+class(feast_meta)
+class(feast_tab)
+```
+
+Run FEAST
+
+```{r}
+feast_result <- FEAST(feast_tab, feast_meta, EM_iterations = 1000, COVERAGE = NULL,
+  different_sources_flag = 1)
+
+feast_result <- FEAST(feast_tab, feast_meta)
+```
+
+### Network Analysis
+
+# Generate files for network analysis
+
+# set parameters
+
+ITS
+```{r}
+term <- "oITS_"
+tab <- oITS_otutab
+tax <- oITS_tax
+meta <- oITS_meta
+```
+
+16S
+```{r}
+term <- "o16S_"
+tab <- o16S_otutab
+tax <- o16S_tax
+meta <- o16S_meta
+```
+
+# Filter data into separate dataframes for each network
+
+make climate column
+```{r}
+meta_1 <- meta %>%
+  mutate(climate = case_when(
+    site == "CR1" ~ "wet",
+    site == "CR1.5" ~ "wet",
+    site == "CR2" ~ "wet",
+    site == "CR3" ~ "wet",
+    site == "CR4" ~ "high",
+    site == "TR4" ~ "high",
+    site == "TR3.5" ~ "high",
+    site == "TR3" ~ "high",
+    site == "TR2.5" ~ "dry",
+    site == "TR2" ~ "dry",
+    site == "TR1" ~ "dry"
+    ))
+```
+
+
+Wet
+```{r}
+# filter metadata
+wet_meta <- meta_1 %>%
+  filter(climate == "wet")
+# filter otutab
+wet_tab <- tab %>%
+  select(contains(c("CR1_", "CR1.5_", "CR2_", "CR3_"))) %>%
+  mutate(total = rowSums(.)) %>%
+  filter(total > 30) %>%
+  select(-total)
+# align tax
+wet_tax <- wet_tab %>%
+  merge(tax, by = 'row.names', all = FALSE) %>%
+  rowid_to_column("num") %>%
+  mutate(Row.names = paste0("ASV_", num, "_", Kingdom))
+# make table
+wet_tab <- wet_tax %>%
+  select(!c(num, Kingdom:Species))
+wet_tab <- wet_tab %>% 
+  column_to_rownames("Row.names")
+# make tax
+wet_tax <- wet_tax %>%
+  select(c(Row.names, Kingdom:Species))
+wet_tax <- wet_tax %>% 
+  column_to_rownames("Row.names")
+```
+
+save 16S
+```{r}
+wet_meta_16S <- wet_meta
+wet_tab_16S <- wet_tab
+wet_tax_16S <- wet_tax
+```
+
+save ITS
+```{r}
+wet_meta_ITS <- wet_meta
+wet_tab_ITS <- wet_tab
+wet_tax_ITS <- wet_tax
+```
+
+combine 16S and ITS
+```{r}
+wet_tax <- bind_rows(wet_tax_16S, wet_tax_ITS)
+wet_tab <- bind_rows(wet_tab_16S, wet_tab_ITS)
+```
+
+High
+```{r}
+
+```
+
+Dry
+```{r}
+
+```
+
+
+Write file
+```{r}
+# set wd
+setwd("~/Desktop/R/incline/files_for_sparcc/")
+write.table(wet_meta, "wet_meta.txt", sep = "\t")
+write.table(wet_tab, "wet_tab.txt", sep = "\t")
+write.table(wet_tax, "wet_tax.txt", sep = "\t")
+```
+
+
+# Correlations for Networks
+
+Correlations sample to sample. Could test some interesting questions... how correlated are the different niches within sites?
+
+```{r}
+spear_corr_wet <- cor(wet_tab, method = "spearman", use = "pairwise.complete.obs")
+pear_corr_wet <- cor(wet_tab, method = "pearson", use = "pairwise.complete.obs")
+```
+
+Correlations ASV to ASV. 
+
+```{r}
+# rotate table
+wet_tab_t <- t(wet_tab)
+# run correlation (can't tell if it's running)
+spear_corr_wet_t <- cor(wet_tab_t, method = "spearman", use = "pairwise.complete.obs")
+```
+
+
+Trying using cor.test to get estimates and p-values. 
+
+```{r}
+# Create an empty data frame to store results
+results <- data.frame()
+
+# Calculate Spearman correlation coefficients and p-values
+for (i in 1:(ncol(data) - 1)) { # Loop through each pair of columns
+  for (j in (i + 1):ncol(wet_tab)) {
+    test <- cor.test(wet_tab[[i]], wet_tab[[j]], method = "spearman")
+    
+    # Store the results
+    results <- rbind(results, data.frame(
+      Taxon1 = colnames(wet_tab)[i],
+      Taxon2 = colnames(wet_tab)[j],
+      SpearmanCor = test$estimate,
+      pValue = test$p.value
+    ))
+  }
+}
+
+# View results
+print(results)
+
+# adjust p-values
+results <- results %>%
+  mutate(AdjustedPValue = p.adjust(pValue, method = "fdr"))
+
+# reformat for gephi
+edges <- results %>%
+  select(Source = Taxon1, Target = Taxon2, Weight = SpearmanCor) %>%
+  filter(AbsWeight = abs(Weight) > 0) # Filter to keep edges with non-zero weights
+
+# Optionally you can include p-values if you want them
+# edgelist_with_pvalues <- edges %>%
+#   select(Source, Target, Weight, pValue = pValue)
+
+# Write edges to a CSV file
+write.csv(edges, "edges.csv", row.names = FALSE)
+```
+
+# full code recomendation from ORNL AI
+
+```{r}
+
+```
+
+Certainly! Here’s a step-by-step example of how you can process an amplicon sequence variant (ASV) table in R to create a correlation network. This example will involve calculating Spearman correlations, getting p-values, and preparing the data for Gephi.
+
+### Step 1: Prepare Example Data
+
+First, let's create a mock ASV table. In a real-world scenario, this would be replaced with your actual ASV data.
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+# Create a mock ASV table
+set.seed(42)
+ASV_table <- data.frame(
+  SampleID = paste0("Sample", 1:10),
+  ASV1 = sample(0:100, 10, replace = TRUE),
+  ASV2 = sample(0:100, 10, replace = TRUE),
+  ASV3 = sample(0:100, 10, replace = TRUE),
+  ASV4 = sample(0:100, 10, replace = TRUE)
+)
+
+# View the ASV table
+print(ASV_table)
+```
+
+### Step 2: Calculate Spearman Correlations
+
+Now we’ll calculate the Spearman correlation coefficients and p-values.
+
+Packages for TSS normalization
+```{r}
+install.packages("remotes")
+remotes::install_github("HuaZou/MyRtools")
+```
+
+
+```{r}
+# Remove the SampleID column for correlation analysis
+# ASV_data <- ASV_table[, -1]
+ASV_data <- wet_tab_t
+ASV_data <- as.data.frame(ASV_data)
+ASV_data <- na.omit(ASV_data)
+# correction
+ASV_data_1 <- ASV_data %>%
+       mutate(across(where(is.numeric), ~ .x + 1))
+# TSS normalization
+norm_tss(ASV_data)
+# Create an empty dataframe to store results
+cor_results <- data.frame()
+
+# Calculate Spearman correlations and p-values
+# more robust loop
+for (i in 1:(ncol(ASV_data) - 1)) {
+  for (j in (i + 1):ncol(ASV_data)) {
+    if (sum(is.finite(ASV_data[[i]])) > 1 && sum(is.finite(ASV_data[[j]])) > 1) {
+      test <- cor.test(ASV_data[[i]], ASV_data[[j]], method = "spearman")
+      
+      # Append the results to the data frame
+      cor_results <- rbind(cor_results, data.frame(
+        Source = colnames(ASV_data)[i],
+        Target = colnames(ASV_data)[j],
+        SpearmanCor = test$estimate,
+        pValue = test$p.value
+      ))
+    } else {
+      message(paste("Skipping comparison of", colnames(ASV_data)[i], "and", colnames(ASV_data)[j], "due to insufficient data."))
+    }
+  }
+}
+
+# View the correlation results
+print(cor_results)
+```
+
+### Step 3: Adjust P-values and Filter for Significant Correlations
+
+We can adjust the p-values using the Benjamini-Hochberg method and filter for significant correlations.
+
+```{r}
+# Adjust p-values for multiple comparisons
+cor_results <- cor_results %>%
+  mutate(AdjustedPValue = p.adjust(pValue, method = "fdr"))
+
+# Filter for significant correlations (e.g., p < 0.05 and abs(SpearmanCor) > 0.7)
+significant_edges <- cor_results %>%
+  filter(AdjustedPValue < 0.05 & abs(SpearmanCor) > .7)
+
+# View significant edges
+print(significant_edges)
+```
+
+### Step 4: Prepare Data for Gephi
+
+Now we will prepare the data in edge list format suitable for Gephi.
+
+```{r}
+# Select relevant columns for Gephi
+edges <- significant_edges %>%
+  select(Source, Target, Weight = SpearmanCor) %>%
+  mutate(direction = case_when(Weight > 0 ~ "pos",
+         Weight < 0 ~ "neg")) %>%
+  mutate(Weight = abs(Weight))
+
+# Write the edges to a CSV file
+write.csv(edges, paste0("edges_", sub_term, ".csv"), row.names = FALSE)
+
+# Optionally, you can also create a nodes data frame
+nodes <- unique(c(edges$Source, edges$Target)) %>%
+  data.frame(id = ., stringsAsFactors = FALSE) 
+
+# Add metadata (microbial kingdom, niche type)
+
+# Write the nodes to a CSV file
+write.csv(nodes, paste0("nodes_" sub_term, ".csv"), row.names = FALSE)
+```
+
+
+### Ok R keeps crashing, trying co-occurence a different way:
+
+Tutorial Link:
+https://microbiome.github.io/OMA/docs/devel/pages/network_learning.html
+
+Packages
+
+```{r}
+if(!require(SpiecEasi)){
+  devtools::install_github("zdk123/SpiecEasi")
+}
+
+if(!require(SPRING)){
+  devtools::install_github("GraceYoon/SPRING")
+}
+
+if(!require(NetCoMi)){
+    devtools::install_github(
+        "stefpeschel/NetCoMi", 
+        repos = c("https://cloud.r-project.org/", BiocManager::repositories())
+    )
+}
+```
+
+Demo Data
+```{r}
+library(mia)
+
+data("peerj13075", package = "mia")
+tse <- peerj13075
+dim(tse)
+```
+
+
+Transformations:
+```{r}
+# Add log10-transformed abundances
+tse <- mia::transformAssay(ASV_data, method = "log10", pseudocount = 1)
+
+# Add clr-transformed abundances
+tse <- transformAssay(tse, method = "clr", pseudocount = 1)
+
+dim(tse)
+```
+
+
+### Trying SpiecEasi
+
+```{r}
+library("SpiecEasi")
+library("devtools")
+install_github("zdk123/SpiecEasi")
+library(SpiecEasi)
+
+remove.packages("SpiecEasi")
+
+Sys.setenv(LDFLAGS="-L/opt/homebrew/opt/gcc//lib/gcc/14/")  # Update "14" accordingly
+Sys.setenv(LD_LIBRARY_PATH="/opt/homebrew/opt/gcc//lib/gcc/14/")  # Update "14" accordingly
+
+
+remotes::install_github("zdk123/SpiecEasi")
+library(devtools)
+devtools::install_github("zdk123/SpiecEasi")
+
+# set asv table as matrix and format columns = asvs and rows = samples
+# set term
+asv_tab <- wet_tab_t
+# run
+sparcc_result <- spiec.easi(asv_tab, method = "sparcc", nlambda = 20, pulsar.select = TRUE)
+
+```
+
+
+
+Full correlation tests:
+
+```{r}
+cor.test(meta$decade_ave_tmax..deg.c., meta$`decade_ave_prcp..mm.day.`, method = "pearson") # .205
+cor.test(meta$CN, meta$`pH.2`, method = "pearson") # -.386
+cor.test(meta$CN, meta$`OM.3`, method = "pearson") # .0835 
+cor.test(meta$`pH.2`, meta$Mg, method = "pearson") # .544
+cor.test(meta$Sand, meta$Clay, method = "pearson") # -.628 # too high
+cor.test(meta$CN, meta$Clay, method = "pearson") # -.270
+cor.test(meta$CN, meta$C.y, method = "pearson") # .127
+cor.test(meta$CN, meta$N.y, method = "pearson") # -.217
+cor.test(meta$Silt, meta$Clay, method = "pearson") # .153
+# testing the weather data 
+cor.test(meta$decade_ave_tmax..deg.c., meta$year_ave_tmax..deg.c., method = "pearson") # .999
+cor.test(meta$decade_ave_tmax..deg.c., meta$month_ave_tmax..deg.c., method = "pearson") # .953
+cor.test(meta$year_ave_tmax..deg.c., meta$month_ave_tmax..deg.c., method = "pearson") # .939
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$`year_ave_prcp..mm.day.`, method = "pearson") # .943
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$`month_ave_prcp..mm.day.`, method = "pearson") # .607
+cor.test(meta$`year_ave_prcp..mm.day.`, meta$`month_ave_prcp..mm.day.`, method = "pearson") # .531
+# testing altitude
+cor.test(meta$altitude, meta$decade_ave_tmax..deg.c., method = "pearson") # -.996 # very strong... take out altitude
+cor.test(meta$altitude, meta$Fe, method = "pearson") # .342
+cor.test(meta$altitude, meta$`decade_ave_prcp..mm.day.`, method = "pearson") # -.182
+cor.test(meta$altitude, meta$`pH.2`, method = "pearson") # -.591 # strong corr
+cor.test(meta$altitude, meta$Cu, method = "pearson") # -.466
+cor.test(meta$altitude, meta$Na, method = "pearson") # -.0897
+cor.test(meta$altitude, meta$CN, method = "pearson") # .688 # strong corr
+cor.test(meta$altitude, meta$Clay, method = "pearson") # .0911
+cor.test(meta$altitude, meta$N.y, method = "pearson") # -.0584
+cor.test(meta$altitude, meta$VPDleaf, method = "pearson") # .487 
+# testing temp
+cor.test(meta$decade_ave_tmax..deg.c., meta$Fe, method = "pearson") # -.378
+cor.test(meta$decade_ave_tmax..deg.c., meta$`decade_ave_prcp..mm.day.`, method = "pearson") # .204
+cor.test(meta$decade_ave_tmax..deg.c., meta$`pH.2`, method = "pearson") # .564 # strong corr
+cor.test(meta$decade_ave_tmax..deg.c., meta$Cu, method = "pearson") # .436
+cor.test(meta$decade_ave_tmax..deg.c., meta$Na, method = "pearson") # .0995
+cor.test(meta$decade_ave_tmax..deg.c., meta$CN, method = "pearson") # -.666 # strong neg corr
+cor.test(meta$decade_ave_tmax..deg.c., meta$Clay, method = "pearson") # -.103
+cor.test(meta$decade_ave_tmax..deg.c., meta$N.y, method = "pearson") # .0553
+cor.test(meta$decade_ave_tmax..deg.c., meta$VPDleaf, method = "pearson") # -.503 # strong neg corr
+# testing iron
+cor.test(meta$Fe, meta$`decade_ave_prcp..mm.day.`, method = "pearson") # -.724 strong neg corr
+cor.test(meta$Fe, meta$`pH.2`, method = "pearson") # .396
+cor.test(meta$Fe, meta$Cu, method = "pearson") # -.045
+cor.test(meta$Fe, meta$Na, method = "pearson") # .211
+cor.test(meta$Fe, meta$CN, method = "pearson") # .219
+cor.test(meta$Fe, meta$Clay, method = "pearson") # .371
+cor.test(meta$Fe, meta$N.y, method = "pearson") # -.248
+cor.test(meta$Fe, meta$VPDleaf, method = "pearson") # .357
+# testing precip
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$`pH.2`, method = "pearson") # -.622 # strong neg corr
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$Cu, method = "pearson") # .268
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$Na, method = "pearson") # -.631 # high neg cor
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$CN, method = "pearson") # -.0714
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$Clay, method = "pearson") # -.428
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$N.y, method = "pearson") # .460
+cor.test(meta$`decade_ave_prcp..mm.day.`, meta$VPDleaf, method = "pearson") # -.138
+# testing pH
+cor.test(meta$`pH.2`, meta$Cu, method = "pearson") # .310
+cor.test(meta$`pH.2`, meta$Na, method = "pearson") # .634 # high cor
+cor.test(meta$`pH.2`, meta$CN, method = "pearson") # -.386
+cor.test(meta$`pH.2`, meta$Clay, method = "pearson") # .406
+cor.test(meta$`pH.2`, meta$N.y, method = "pearson") # -.132
+cor.test(meta$`pH.2`, meta$VPDleaf, method = "pearson") # -.197
+# testing Cu
+cor.test(meta$Cu, meta$Na, method = "pearson") # .0421
+cor.test(meta$Cu, meta$CN, method = "pearson") # -.336
+cor.test(meta$Cu, meta$Clay, method = "pearson") # .224
+cor.test(meta$Cu, meta$N.y, method = "pearson") # .643 # high correlation
+cor.test(meta$Cu, meta$VPDleaf, method = "pearson") # -.016
+# testing Na
+cor.test(meta$Na, meta$CN, method = "pearson") # -.0751
+cor.test(meta$Na, meta$Clay, method = "pearson") # .676 # high correlation
+cor.test(meta$Na, meta$N.y, method = "pearson") # .146
+cor.test(meta$Na, meta$VPDleaf, method = "pearson") # -.245
+# testing CN
+cor.test(meta$CN, meta$Clay, method = "pearson") # -.270
+cor.test(meta$CN, meta$N.y, method = "pearson") # -.217
+cor.test(meta$CN, meta$VPDleaf, method = "pearson") # -.479
+# testing Clay
+cor.test(meta$Clay, meta$N.y, method = "pearson") # .516 # strong corr
+cor.test(meta$Clay, meta$VPDleaf, method = "pearson") # .007
+# testing N
+cor.test(meta$N.y, meta$VPDleaf, method = "pearson") # -.108
+```
+
+
