@@ -20,6 +20,8 @@ library(ggplot2)
 library(ggrepel)
 library(phyloseq)
 library(BiodiversityR)
+library(ggpubr)
+library(flextable)
 ```
 
 ### 16S Full ###
@@ -325,7 +327,7 @@ cca_plot_16S_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -435,7 +437,7 @@ climate_ellipses_long <- climate_ellipses_long %>%
   mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
   arrange(climate)
 # make figure 
-nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+nmds_plot_climate_16S_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
   geom_point() + 
   scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
   geom_polygon(aes(x = axis1, y = axis2, color = climate), 
@@ -447,7 +449,7 @@ nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, colo
              alpha = 0.5, size = 0.3) + # line at 0
 #  ggtitle("NMDS watershed and site") + # title
   xlab("NMDS1") + ylab("NMDS2") #axis name 
-nmds_plot_climate_16S_soil_full
+nmds_plot_climate_16S_full
 # save figure
 ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
 ```
@@ -715,7 +717,7 @@ cca_plot_ITS_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -825,7 +827,7 @@ climate_ellipses_long <- climate_ellipses_long %>%
   mutate(climate = fct_relevel(climate, "wet", "high", "dry"))  %>%
   arrange(climate)
 # make figure 
-nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
+nmds_plot_climate_ITS_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, color = climate)) + 
   geom_point() + 
   scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
   geom_polygon(aes(x = axis1, y = axis2, color = climate), 
@@ -837,7 +839,7 @@ nmds_plot_climate_16S_soil_full <- ggplot(data = nmds_df, aes(NMDS1, NMDS2, colo
              alpha = 0.5, size = 0.3) + # line at 0
 #  ggtitle("NMDS watershed and site") + # title
   xlab("NMDS1") + ylab("NMDS2") #axis name 
-nmds_plot_climate_16S_soil_full
+nmds_plot_climate_ITS_full
 # save figure
 ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, height = 4)
 ```
@@ -1107,7 +1109,7 @@ cca_plot_16S_soil_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -1470,7 +1472,7 @@ cca_plot_ITS_soil_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -1833,7 +1835,7 @@ cca_plot_16S_rhizo_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -2196,7 +2198,7 @@ cca_plot_ITS_rhizo_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -2559,7 +2561,7 @@ cca_plot_16S_roots_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -2921,7 +2923,7 @@ cca_plot_ITS_roots_full <- ggplot() +
     aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
     arrow = arrow(length = unit(0.1, "cm"))) +
   geom_text_repel(data = veg_1,
-    aes(x = CCA1, y = CCA2, label = veg_1$env),
+    aes(x = CCA1, y = CCA2, label = env),
     color = "black", size = 3) +
   theme_classic() + # better theme
   geom_hline(yintercept = 0, linetype = "dashed", 
@@ -3022,6 +3024,346 @@ ggsave(paste0("results/beta_results/NMDS_climate", term, ".png"), width = 6, hei
 ```
 
 
+# Composite figures and tables
+
+## CCA plots
+
+```{r}
+# all together
+full_plot <- ggarrange(cca_plot_16S_full, cca_plot_16S_soil_full, 
+                       cca_plot_16S_rhizo_full, cca_plot_16S_roots_full, 
+                       cca_plot_ITS_full, cca_plot_ITS_soil_full, 
+                       cca_plot_ITS_rhizo_full, cca_plot_ITS_roots_full, 
+                       nrow = 2, ncol = 4, common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave("results/beta_results/CCA_full.png", width = 16, height = 6)
+```
+
+## GLM tables
+
+```{r}
+# Create a named list of your dataframes
+data_frames <- list(
+  precip_shan_cor_16S_tab = precip_shan_cor_16S_tab,
+  precip_shan_cor_ITS_tab = precip_shan_cor_ITS_tab,
+  tmax_shan_cor_16S_tab = tmax_shan_cor_16S_tab,
+  tmax_shan_cor_ITS_tab = tmax_shan_cor_ITS_tab,
+  elev_shan_cor_16S_tab = elev_shan_cor_16S_tab,
+  elev_shan_cor_ITS_tab = elev_shan_cor_ITS_tab,
+  precip_shan_cor_soil_16S_tab = precip_shan_cor_soil_16S_tab,
+  precip_shan_cor_soil_ITS_tab = precip_shan_cor_soil_ITS_tab,
+  tmax_shan_cor_soil_16S_tab = tmax_shan_cor_soil_16S_tab,
+  tmax_shan_cor_soil_ITS_tab = tmax_shan_cor_soil_ITS_tab,
+  elev_shan_cor_soil_16S_tab = elev_shan_cor_soil_16S_tab,
+  elev_shan_cor_soil_ITS_tab = elev_shan_cor_soil_ITS_tab,
+  precip_shan_cor_rhizo_16S_tab = precip_shan_cor_rhizo_16S_tab,
+  precip_shan_cor_rhizo_ITS_tab = precip_shan_cor_rhizo_ITS_tab,
+  tmax_shan_cor_rhizo_16S_tab = tmax_shan_cor_rhizo_16S_tab,
+  tmax_shan_cor_rhizo_ITS_tab = tmax_shan_cor_rhizo_ITS_tab,
+  elev_shan_cor_rhizo_16S_tab = elev_shan_cor_rhizo_16S_tab,
+  elev_shan_cor_rhizo_ITS_tab = elev_shan_cor_rhizo_ITS_tab,
+  precip_shan_cor_root_16S_tab = precip_shan_cor_root_16S_tab,
+  precip_shan_cor_root_ITS_tab = precip_shan_cor_root_ITS_tab,
+  tmax_shan_cor_root_16S_tab = tmax_shan_cor_root_16S_tab,
+  tmax_shan_cor_root_ITS_tab = tmax_shan_cor_root_ITS_tab,
+  elev_shan_cor_root_16S_tab = elev_shan_cor_root_16S_tab,
+  elev_shan_cor_root_ITS_tab = elev_shan_cor_root_ITS_tab
+)
+
+# Create a function to extract metadata from the dataframe name
+extract_metadata <- function(df_name) {
+  method <- ifelse(grepl("16S", df_name), "16S", "ITS")
+  sample <- ifelse(grepl("soil", df_name), "Soil",
+              ifelse(grepl("rhizo", df_name), "Rhizosphere", 
+                ifelse(grepl("root", df_name), "Roots", "All")))
+  variable <- ifelse(grepl("precip", df_name), "Precipitation",
+               ifelse(grepl("tmax", df_name), "Average Max Temperature", "Elevation"))
+  return(c(method, sample, variable))
+}
+
+# Combine results into a single dataframe
+combined_results <- bind_rows(
+  lapply(names(data_frames), function(df_name) {
+    df <- data_frames[[df_name]]  # Retrieve the actual data frame using its name
+    # Extract metadata
+    metadata <- extract_metadata(df_name)
+    # Check if df has required columns - replace 'statistic' and 'p.value' as necessary
+    df %>%
+      mutate(Method = metadata[1],
+             Sample = metadata[2],
+             Variable = metadata[3]) %>%
+      select(Method, Sample, Variable, statistic, p.value) # Adjust column names accordingly
+  })
+)
+
+# Modify combined dataframe
+full_cor <- combined_results %>%
+  rename(Amplicon = Method) %>%
+  rename(Niche = Sample) %>%
+  rename(r = statistic) %>%
+  rename(`p-val` = p.value) %>%
+  mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
+  mutate(r = formatC(r, format = "f", digits = 3)) %>%
+  mutate(sig = ifelse(`p-val` < 0.001, "***",
+    ifelse(`p-val` < 0.01, "**",
+    ifelse(`p-val` < 0.05, "*",
+    ifelse(`p-val` < 0.1, ".", ""))))) %>%
+  select(c(Variable, Amplicon, Niche, r, `p-val`, sig))
+# Make wide format
+full_cor_wide <- full_cor %>%
+  pivot_wider(names_from = Niche, values_from = c(r, `p-val`, sig)) %>%
+  select(Variable, Amplicon,
+    r_All, `p-val_All`, sig_All,  # First columns for 'All'
+    r_Soil, `p-val_Soil`, sig_Soil,  # then for 'Soil'
+    r_Rhizosphere, `p-val_Rhizosphere`, sig_Rhizosphere,  # for 'Rhizosphere'
+    r_Roots, `p-val_Roots`, sig_Roots) %>%
+  rename(
+    All_r = r_All,
+    `All_p-val` = `p-val_All`,
+    All_sig = sig_All,
+    Soil_r = r_Soil,
+    `Soil_p-val` = `p-val_Soil`,
+    Soil_sig = sig_Soil,
+    Rhizosphere_r = r_Rhizosphere,
+    `Rhizosphere_p-val` = `p-val_Rhizosphere`,
+    Rhizosphere_sig = sig_Rhizosphere,
+    Roots_r = r_Roots,
+    `Roots_p-val` = `p-val_Roots`,
+    Roots_sig = sig_Roots
+  )
+
+# Building the table
+ft <- flextable(full_cor_wide) %>%
+  theme_booktabs() %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header() %>%
+  align(align = "center", part = "all", j = 2:14) %>%
+  merge_v(j=1) %>%
+  vline(j = c(2,5,8,11)) %>%
+  hline(i = c(2,4,6)) %>%
+  hline(i = 1, part = "head") %>%
+  autofit()
+ft
+
+# save the table
+save_as_docx(ft, path = "results/alpha_results/pearson_corr_table.docx")
+save_as_image(ft, path = "results/alpha_results/pearson_corr_table.png")
+```
+
+
+## NMDS plots (niche)
+
+```{r}
+# niche NMDS
+full_plot <- ggarrange(nmds_plot_niche_16S_full, 
+                       nmds_plot_niche_ITS_full, 
+                       nrow = 2, ncol = 1, 
+                       common.legend = TRUE, 
+                       legend = "right")
+full_plot
+# save full plot
+ggsave("results/beta_results/nmds_niche_full.png", width = 4, height = 6)
+
+# site NMDS
+full_plot <- ggarrange(nmds_plot_site_16S_full, 
+                       nmds_plot_site_16S_soil_full, 
+                       nmds_plot_site_16S_rhizo_full,
+                       nmds_plot_site_16S_roots_full, 
+                       nmds_plot_site_ITS_full, 
+                       nmds_plot_site_ITS_soil_full, 
+                       nmds_plot_site_ITS_rhizo_full,
+                       nmds_plot_site_ITS_roots_full,
+                       nrow = 2, ncol = 4, 
+                       common.legend = TRUE, 
+                       legend = "right")
+full_plot
+# save full plot
+ggsave("results/beta_results/nmds_site_full.png", width = 16, height = 6)
+
+# climate NMDS
+full_plot <- ggarrange(nmds_plot_climate_16S_full, 
+                       nmds_plot_climate_16S_soil_full, 
+                       nmds_plot_climate_16S_rhizo_full,
+                       nmds_plot_climate_16S_roots_full, 
+                       nmds_plot_climate_ITS_full, 
+                       nmds_plot_climate_ITS_soil_full, 
+                       nmds_plot_climate_ITS_rhizo_full,
+                       nmds_plot_climate_ITS_roots_full,
+                       nrow = 2, ncol = 4, 
+                       common.legend = TRUE, 
+                       legend = "right")
+full_plot
+# save full plot
+ggsave("results/beta_results/nmds_climate_full.png", width = 16, height = 6)
+```
+
+
+## PERMANOVA tables
+
+Site and Niche
+```{r}
+# Combine 16S permanovas
+permanova_16S_full <- perm_niche_site_16S %>% 
+  rename_with(~ paste(.x, "full", sep = "_"), -term) %>%
+  full_join(perm_site_16S_soil %>% rename_with(~ paste(.x, "soil", sep = "_"), -term) %>%
+  full_join(perm_site_16S_rhizo %>% rename_with(~ paste(.x, "rhizo", sep = "_"), -term) %>%
+  full_join(perm_site_16S_roots %>% rename_with(~ paste(.x, "roots", sep = "_"), -term), by = "term")))
+# Combine ITS permanovas
+permanova_ITS_full <- perm_niche_site_ITS %>% 
+  rename_with(~ paste(.x, "full", sep = "_"), -term) %>%
+  full_join(perm_site_ITS_soil %>% rename_with(~ paste(.x, "soil", sep = "_"), -term) %>%
+  full_join(perm_site_ITS_rhizo %>% rename_with(~ paste(.x, "rhizo", sep = "_"), -term) %>%
+  full_join(perm_site_ITS_roots %>% rename_with(~ paste(.x, "roots", sep = "_"), -term), by = "term")))
+# Combine 16S and ITS
+combined_permanova <- permanova_16S_full %>%
+  bind_rows(permanova_ITS_full, .id = "id") %>%
+  mutate(id = ifelse(id == 1, "16S", "ITS")) %>%
+  mutate(sig_full = ifelse(p.value_full == 0.001, "***",
+    ifelse(p.value_16S_full < 0.01, "**",
+    ifelse(p.value_16S_full < 0.05, "*",
+    ifelse(p.value_16S_full < 0.1, ".", as.character()))))) %>%
+  mutate(sig_soil = ifelse(p.value_soil == 0.001, "***",
+    ifelse(p.value_16S_soil < 0.01, "**",
+    ifelse(p.value_16S_soil < 0.05, "*",
+    ifelse(p.value_16S_soil < 0.1, ".", as.character()))))) %>%
+  mutate(sig_rhizo = ifelse(p.value_rhizo == 0.001, "***",
+    ifelse(p.value_16S_rhizo < 0.01, "**",
+    ifelse(p.value_16S_rhizo < 0.05, "*",
+    ifelse(p.value_16S_rhizo < 0.1, ".", as.character()))))) %>%
+  mutate(sig_roots = ifelse(p.value_roots == 0.001, "***",
+    ifelse(p.value_16S_roots < 0.01, "**",
+    ifelse(p.value_16S_roots < 0.05, "*",
+    ifelse(p.value_16S_roots < 0.1, ".", as.character()))))) %>%
+  select(c(1,2,4:7), sig_full, c(9:12), sig_soil, c(14:17), sig_rhizo, c(19:22), sig_roots) %>%
+  rename(amplicon = id, 
+    `All Samples_Sum Sq` = SumOfSqs_full,
+    `All Samples_F-statistic` = statistic_full,
+    `All Samples_p-val` = p.value_full,
+    `All Samples_` = sig_full,
+    `Soil_Sum Sq` = SumOfSqs_soil,
+    `Soil_F-statistic` = statistic_soil,
+    `Soil_p-val` = p.value_soil,
+    `Soil_` = sig_soil,
+    `Rhizosphere_Sum Sq` = SumOfSqs_rhizo,
+    `Rhizosphere_F-statistic` = statistic_rhizo,
+    `Rhizosphere_p-val` = p.value_rhizo,
+    `Rhizosphere_` = sig_rhizo,
+    `Root Endosphere_Sum Sq` = SumOfSqs_roots,
+    `Root Endosphere_F-statistic` = statistic_roots,
+    `Root Endosphere_p-val` = p.value_roots,
+    `Root Endosphere_` = sig_roots,
+    `All Samples_R2` = R2_full,
+    `Soil_R2` = R2_soil,
+    `Rhizosphere_R2` = R2_rhizo,
+    `Root Endosphere_R2` = R2_roots) %>%
+  mutate(across(where(is.numeric), ~formatC(., format = "f", digits = 3))) %>%
+  mutate(across(where(is.character), ~ str_remove_all(., "\\.000"))) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  mutate(across(everything(), ~ str_replace_all(., "NA", "")))
+combined_permanova
+# make flextable
+# make printable table with flextable
+ft <- flextable(combined_permanova) %>%
+  theme_booktabs() %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header() %>%
+  align(align = "center", part = "all", j = 3:22) %>%
+  merge_v(j=1) %>%
+  vline(j = c(1,2,7,12,17)) %>%
+  hline(i = c(5)) %>%
+  hline(i = 1, part = "head") %>%
+  autofit()
+ft
+# save the table
+save_as_docx(ft, path = "results/beta_results/perm_niche_site_table.docx")
+save_as_image(ft, path = "results/beta_results/perm_niche_site_table.png")
+```
+
+Climate and Niche
+```{r}
+# Combine 16S permanovas
+permanova_16S_full <- perm_niche_climate_16S %>% 
+  rename_with(~ paste(.x, "full", sep = "_"), -term) %>%
+  full_join(perm_climate_16S_soil %>% rename_with(~ paste(.x, "soil", sep = "_"), -term) %>%
+  full_join(perm_climate_16S_rhizo %>% rename_with(~ paste(.x, "rhizo", sep = "_"), -term) %>%
+  full_join(perm_climate_16S_roots %>% rename_with(~ paste(.x, "roots", sep = "_"), -term), by = "term")))
+# Combine ITS permanovas
+permanova_ITS_full <- perm_niche_climate_ITS %>% 
+  rename_with(~ paste(.x, "full", sep = "_"), -term) %>%
+  full_join(perm_climate_ITS_soil %>% rename_with(~ paste(.x, "soil", sep = "_"), -term) %>%
+  full_join(perm_climate_ITS_rhizo %>% rename_with(~ paste(.x, "rhizo", sep = "_"), -term) %>%
+  full_join(perm_climate_ITS_roots %>% rename_with(~ paste(.x, "roots", sep = "_"), -term), by = "term")))
+# Combine 16S and ITS
+combined_permanova <- permanova_16S_full %>%
+  bind_rows(permanova_ITS_full, .id = "id") %>%
+  mutate(id = ifelse(id == 1, "16S", "ITS")) %>%
+  mutate(sig_full = ifelse(p.value_full == 0.001, "***",
+    ifelse(p.value_16S_full < 0.01, "**",
+    ifelse(p.value_16S_full < 0.05, "*",
+    ifelse(p.value_16S_full < 0.1, ".", as.character()))))) %>%
+  mutate(sig_soil = ifelse(p.value_soil == 0.001, "***",
+    ifelse(p.value_16S_soil < 0.01, "**",
+    ifelse(p.value_16S_soil < 0.05, "*",
+    ifelse(p.value_16S_soil < 0.1, ".", as.character()))))) %>%
+  mutate(sig_rhizo = ifelse(p.value_rhizo == 0.001, "***",
+    ifelse(p.value_16S_rhizo < 0.01, "**",
+    ifelse(p.value_16S_rhizo < 0.05, "*",
+    ifelse(p.value_16S_rhizo < 0.1, ".", as.character()))))) %>%
+  mutate(sig_roots = ifelse(p.value_roots == 0.001, "***",
+    ifelse(p.value_16S_roots < 0.01, "**",
+    ifelse(p.value_16S_roots < 0.05, "*",
+    ifelse(p.value_16S_roots < 0.1, ".", as.character()))))) %>%
+  select(c(1,2,4:7), sig_full, c(9:12), sig_soil, c(14:17), sig_rhizo, c(19:22), sig_roots) %>%
+  rename(amplicon = id, 
+    `All Samples_Sum Sq` = SumOfSqs_full,
+    `All Samples_F-statistic` = statistic_full,
+    `All Samples_p-val` = p.value_full,
+    `All Samples_` = sig_full,
+    `Soil_Sum Sq` = SumOfSqs_soil,
+    `Soil_F-statistic` = statistic_soil,
+    `Soil_p-val` = p.value_soil,
+    `Soil_` = sig_soil,
+    `Rhizosphere_Sum Sq` = SumOfSqs_rhizo,
+    `Rhizosphere_F-statistic` = statistic_rhizo,
+    `Rhizosphere_p-val` = p.value_rhizo,
+    `Rhizosphere_` = sig_rhizo,
+    `Root Endosphere_Sum Sq` = SumOfSqs_roots,
+    `Root Endosphere_F-statistic` = statistic_roots,
+    `Root Endosphere_p-val` = p.value_roots,
+    `Root Endosphere_` = sig_roots,
+    `All Samples_R2` = R2_full,
+    `Soil_R2` = R2_soil,
+    `Rhizosphere_R2` = R2_rhizo,
+    `Root Endosphere_R2` = R2_roots) %>%
+  mutate(across(where(is.numeric), ~formatC(., format = "f", digits = 3))) %>%
+  mutate(across(where(is.character), ~ str_remove_all(., "\\.000"))) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  mutate(across(everything(), ~ str_replace_all(., "NA", "")))
+combined_permanova
+# make flextable
+# make printable table with flextable
+ft <- flextable(combined_permanova) %>%
+  theme_booktabs() %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header() %>%
+  align(align = "center", part = "all", j = 3:22) %>%
+  merge_v(j=1) %>%
+  vline(j = c(1,2,7,12,17)) %>%
+  hline(i = c(5)) %>%
+  hline(i = 1, part = "head") %>%
+  autofit()
+ft
+# save the table
+save_as_docx(ft, path = "results/beta_results/perm_niche_climate_table.docx")
+save_as_image(ft, path = "results/beta_results/perm_niche_climate_table.png")
+```
 
 
 
