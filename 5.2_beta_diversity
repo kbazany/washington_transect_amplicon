@@ -3043,115 +3043,132 @@ ggsave("results/beta_results/CCA_full.png", width = 16, height = 6)
 ## GLM tables
 
 ```{r}
-# Create a named list of your dataframes
-data_frames <- list(
-  precip_shan_cor_16S_tab = precip_shan_cor_16S_tab,
-  precip_shan_cor_ITS_tab = precip_shan_cor_ITS_tab,
-  tmax_shan_cor_16S_tab = tmax_shan_cor_16S_tab,
-  tmax_shan_cor_ITS_tab = tmax_shan_cor_ITS_tab,
-  elev_shan_cor_16S_tab = elev_shan_cor_16S_tab,
-  elev_shan_cor_ITS_tab = elev_shan_cor_ITS_tab,
-  precip_shan_cor_soil_16S_tab = precip_shan_cor_soil_16S_tab,
-  precip_shan_cor_soil_ITS_tab = precip_shan_cor_soil_ITS_tab,
-  tmax_shan_cor_soil_16S_tab = tmax_shan_cor_soil_16S_tab,
-  tmax_shan_cor_soil_ITS_tab = tmax_shan_cor_soil_ITS_tab,
-  elev_shan_cor_soil_16S_tab = elev_shan_cor_soil_16S_tab,
-  elev_shan_cor_soil_ITS_tab = elev_shan_cor_soil_ITS_tab,
-  precip_shan_cor_rhizo_16S_tab = precip_shan_cor_rhizo_16S_tab,
-  precip_shan_cor_rhizo_ITS_tab = precip_shan_cor_rhizo_ITS_tab,
-  tmax_shan_cor_rhizo_16S_tab = tmax_shan_cor_rhizo_16S_tab,
-  tmax_shan_cor_rhizo_ITS_tab = tmax_shan_cor_rhizo_ITS_tab,
-  elev_shan_cor_rhizo_16S_tab = elev_shan_cor_rhizo_16S_tab,
-  elev_shan_cor_rhizo_ITS_tab = elev_shan_cor_rhizo_ITS_tab,
-  precip_shan_cor_root_16S_tab = precip_shan_cor_root_16S_tab,
-  precip_shan_cor_root_ITS_tab = precip_shan_cor_root_ITS_tab,
-  tmax_shan_cor_root_16S_tab = tmax_shan_cor_root_16S_tab,
-  tmax_shan_cor_root_ITS_tab = tmax_shan_cor_root_ITS_tab,
-  elev_shan_cor_root_16S_tab = elev_shan_cor_root_16S_tab,
-  elev_shan_cor_root_ITS_tab = elev_shan_cor_root_ITS_tab
-)
+# combine all GLM outputs vertically
+all_glm <- full_glm_16S %>%
+  full_join(full_glm_16S_soil, by = "term", suffix = c("_16S_full", "_16S_soil")) %>%
+  full_join(full_glm_16S_rhizo, by = "term", suffix = c("", "_16S_rhizo")) %>% # didn't add suffix :(
+  full_join(full_glm_16S_roots, by = "term", suffix = c("", "_16S_roots")) %>%
+  full_join(full_glm_ITS, by = "term", suffix = c("", "_ITS_full")) %>%
+  full_join(full_glm_ITS_soil, by = "term", suffix = c("", "_ITS_soil")) %>%
+  full_join(full_glm_ITS_rhizo, by = "term", suffix = c("", "_ITS_rhizo")) %>%
+  full_join(full_glm_ITS_roots, by = "term", suffix = c("", "_ITS_roots")) %>%
+  rename(df_16S_rhizo = df, SumOfSqs_16S_rhizo = SumOfSqs, R2_16S_rhizo = R2, 
+         statistic_16S_rhizo = statistic, p.value_16S_rhizo = p.value) %>%
+  mutate(R2_total = rowSums(select(., R2_16S_full, R2_16S_soil, R2_16S_rhizo, R2_16S_roots, 
+           R2_ITS_full, R2_ITS_soil, R2_ITS_rhizo, R2_ITS_roots), na.rm = TRUE)) %>%
+  arrange(., desc(R2_total))
+all_glm <- all_glm %>% # move residual to the bottom
+  filter(!(term %in% c("Residual"))) %>% 
+  bind_rows(all_glm %>% filter(term %in% c("Residual")))  
+all_glm <- all_glm %>% # move total to the bottom
+  filter(!(term %in% c("Total"))) %>% 
+  bind_rows(all_glm %>% filter(term %in% c("Total")))
+all_glm <- all_glm %>%
+  mutate(sig_16S_full = ifelse(p.value_16S_full == 0.001, "***",
+    ifelse(p.value_16S_full < 0.01, "**",
+    ifelse(p.value_16S_full < 0.05, "*",
+    ifelse(p.value_16S_full < 0.1, ".", as.character()))))) %>%
+  mutate(sig_16S_soil = ifelse(p.value_16S_soil == 0.001, "***",
+    ifelse(p.value_16S_soil < 0.01, "**",
+    ifelse(p.value_16S_soil < 0.05, "*",
+    ifelse(p.value_16S_soil < 0.1, ".", as.character()))))) %>%
+  mutate(sig_16S_rhizo = ifelse(p.value_16S_rhizo == 0.001, "***",
+    ifelse(p.value_16S_rhizo < 0.01, "**",
+    ifelse(p.value_16S_rhizo < 0.05, "*",
+    ifelse(p.value_16S_rhizo < 0.1, ".", as.character()))))) %>%
+  mutate(sig_16S_roots = ifelse(p.value_16S_roots == 0.001, "***",
+    ifelse(p.value_16S_roots < 0.01, "**",
+    ifelse(p.value_16S_roots < 0.05, "*",
+    ifelse(p.value_16S_roots < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS_full = ifelse(p.value_ITS_full == 0.001, "***",
+    ifelse(p.value_16S_full < 0.01, "**",
+    ifelse(p.value_16S_full < 0.05, "*",
+    ifelse(p.value_16S_full < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS_soil = ifelse(p.value_ITS_soil == 0.001, "***",
+    ifelse(p.value_16S_soil < 0.01, "**",
+    ifelse(p.value_16S_soil < 0.05, "*",
+    ifelse(p.value_16S_soil < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS_rhizo = ifelse(p.value_ITS_rhizo == 0.001, "***",
+    ifelse(p.value_16S_rhizo < 0.01, "**",
+    ifelse(p.value_16S_rhizo < 0.05, "*",
+    ifelse(p.value_16S_rhizo < 0.1, ".", as.character()))))) %>%
+  mutate(sig_ITS_roots = ifelse(p.value_ITS_roots == 0.001, "***",
+    ifelse(p.value_16S_roots < 0.01, "**",
+    ifelse(p.value_16S_roots < 0.05, "*",
+    ifelse(p.value_16S_roots < 0.1, ".", as.character()))))) %>%
+  select(term, R2_16S_full, statistic_16S_full, p.value_16S_full, sig_16S_full, 
+         R2_16S_soil, statistic_16S_soil, p.value_16S_soil, sig_16S_soil, 
+         R2_16S_rhizo, statistic_16S_rhizo, p.value_16S_rhizo, sig_16S_rhizo,
+         R2_16S_roots, statistic_16S_roots, p.value_16S_roots, sig_16S_roots, 
+         R2_ITS_full, statistic_ITS_full, p.value_ITS_full, sig_ITS_full, 
+         R2_ITS_soil, statistic_ITS_soil, p.value_ITS_soil, sig_ITS_soil, 
+         R2_ITS_rhizo, statistic_ITS_rhizo, p.value_ITS_rhizo, sig_ITS_rhizo,
+         R2_ITS_roots, statistic_ITS_roots, p.value_ITS_roots, sig_ITS_roots) %>%
+    rename(
+    `16S_All Samples_F-statistic` = statistic_16S_full,
+    `16S_All Samples_p-val` = p.value_16S_full,
+    `16S_All Samples_` = sig_16S_full,
+    `16S_Soil_F-statistic` = statistic_16S_soil,
+    `16S_Soil_p-val` = p.value_16S_soil,
+    `16S_Soil_` = sig_16S_soil,
+    `16S_Rhizosphere_F-statistic` = statistic_16S_rhizo,
+    `16S_Rhizosphere_p-val` = p.value_16S_rhizo,
+    `16S_Rhizosphere_` = sig_16S_rhizo,
+    `16S_Root Endosphere_F-statistic` = statistic_16S_roots,
+    `16S_Root Endosphere_p-val` = p.value_16S_roots,
+    `16S_Root Endosphere_` = sig_16S_roots,
+    `16S_All Samples_R2` = R2_16S_full,
+    `16S_Soil_R2` = R2_16S_soil,
+    `16S_Rhizosphere_R2` = R2_16S_rhizo,
+    `16S_Root Endosphere_R2` = R2_16S_roots,
+    `ITS_All Samples_F-statistic` = statistic_ITS_full,
+    `ITS_All Samples_p-val` = p.value_ITS_full,
+    `ITS_All Samples_` = sig_ITS_full,
+    `ITS_Soil_F-statistic` = statistic_ITS_soil,
+    `ITS_Soil_p-val` = p.value_ITS_soil,
+    `ITS_Soil_` = sig_ITS_soil,
+    `ITS_Rhizosphere_F-statistic` = statistic_ITS_rhizo,
+    `ITS_Rhizosphere_p-val` = p.value_ITS_rhizo,
+    `ITS_Rhizosphere_` = sig_ITS_rhizo,
+    `ITS_Root Endosphere_F-statistic` = statistic_ITS_roots,
+    `ITS_Root Endosphere_p-val` = p.value_ITS_roots,
+    `ITS_Root Endosphere_` = sig_ITS_roots,
+    `ITS_All Samples_R2` = R2_ITS_full,
+    `ITS_Soil_R2` = R2_ITS_soil,
+    `ITS_Rhizosphere_R2` = R2_ITS_rhizo,
+    `ITS_Root Endosphere_R2` = R2_ITS_roots) %>%
+  mutate(across(where(is.numeric), ~formatC(., format = "f", digits = 3))) %>%
+  mutate(across(where(is.character), ~ str_remove_all(., "\\.000"))) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  mutate(across(everything(), ~ str_replace_all(., "NA", "")))
+# recode
+all_glm$term[all_glm$term == "decade_ave_tmax..deg.c."] <- "Temperature"
+all_glm$term[all_glm$term == "decade_ave_prcp..mm.day."] <- "Precipitation"
+all_glm$term[all_glm$term == "pH.2"] <- "pH"
+all_glm$term[all_glm$term == "C.y"] <- "C"
+all_glm$term[all_glm$term == "OM.3"] <- "OM"
+```
 
-# Create a function to extract metadata from the dataframe name
-extract_metadata <- function(df_name) {
-  method <- ifelse(grepl("16S", df_name), "16S", "ITS")
-  sample <- ifelse(grepl("soil", df_name), "Soil",
-              ifelse(grepl("rhizo", df_name), "Rhizosphere", 
-                ifelse(grepl("root", df_name), "Roots", "All")))
-  variable <- ifelse(grepl("precip", df_name), "Precipitation",
-               ifelse(grepl("tmax", df_name), "Average Max Temperature", "Elevation"))
-  return(c(method, sample, variable))
-}
-
-# Combine results into a single dataframe
-combined_results <- bind_rows(
-  lapply(names(data_frames), function(df_name) {
-    df <- data_frames[[df_name]]  # Retrieve the actual data frame using its name
-    # Extract metadata
-    metadata <- extract_metadata(df_name)
-    # Check if df has required columns - replace 'statistic' and 'p.value' as necessary
-    df %>%
-      mutate(Method = metadata[1],
-             Sample = metadata[2],
-             Variable = metadata[3]) %>%
-      select(Method, Sample, Variable, statistic, p.value) # Adjust column names accordingly
-  })
-)
-
-# Modify combined dataframe
-full_cor <- combined_results %>%
-  rename(Amplicon = Method) %>%
-  rename(Niche = Sample) %>%
-  rename(r = statistic) %>%
-  rename(`p-val` = p.value) %>%
-  mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
-  mutate(r = formatC(r, format = "f", digits = 3)) %>%
-  mutate(sig = ifelse(`p-val` < 0.001, "***",
-    ifelse(`p-val` < 0.01, "**",
-    ifelse(`p-val` < 0.05, "*",
-    ifelse(`p-val` < 0.1, ".", ""))))) %>%
-  select(c(Variable, Amplicon, Niche, r, `p-val`, sig))
-# Make wide format
-full_cor_wide <- full_cor %>%
-  pivot_wider(names_from = Niche, values_from = c(r, `p-val`, sig)) %>%
-  select(Variable, Amplicon,
-    r_All, `p-val_All`, sig_All,  # First columns for 'All'
-    r_Soil, `p-val_Soil`, sig_Soil,  # then for 'Soil'
-    r_Rhizosphere, `p-val_Rhizosphere`, sig_Rhizosphere,  # for 'Rhizosphere'
-    r_Roots, `p-val_Roots`, sig_Roots) %>%
-  rename(
-    All_r = r_All,
-    `All_p-val` = `p-val_All`,
-    All_sig = sig_All,
-    Soil_r = r_Soil,
-    `Soil_p-val` = `p-val_Soil`,
-    Soil_sig = sig_Soil,
-    Rhizosphere_r = r_Rhizosphere,
-    `Rhizosphere_p-val` = `p-val_Rhizosphere`,
-    Rhizosphere_sig = sig_Rhizosphere,
-    Roots_r = r_Roots,
-    `Roots_p-val` = `p-val_Roots`,
-    Roots_sig = sig_Roots
-  )
-
-# Building the table
-ft <- flextable(full_cor_wide) %>%
+```{r}
+# make flextable
+ft <- flextable(all_glm) %>%
   theme_booktabs() %>%
   add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
   font(part = "all", fontname = "times new roman") %>%
   fontsize(part = "all", size = 8) %>%
   separate_header() %>%
-  align(align = "center", part = "all", j = 2:14) %>%
+  align(align = "center", part = "all", j = 2:33) %>%
   merge_v(j=1) %>%
-  vline(j = c(2,5,8,11)) %>%
-  hline(i = c(2,4,6)) %>%
-  hline(i = 1, part = "head") %>%
+  vline(j = c(1,5,9,13,17,21,25,29)) %>%
+  hline(i = c(18,19)) %>%
+  hline(i = c(1,2), part = "head") %>%
   autofit()
 ft
-
 # save the table
-save_as_docx(ft, path = "results/alpha_results/pearson_corr_table.docx")
-save_as_image(ft, path = "results/alpha_results/pearson_corr_table.png")
+save_as_docx(ft, path = "results/beta_results/glm_full_table.docx")
+save_as_image(ft, path = "results/beta_results/glm_full_table.png")
 ```
+
 
 
 ## NMDS plots (niche)
@@ -3364,8 +3381,4 @@ ft
 save_as_docx(ft, path = "results/beta_results/perm_niche_climate_table.docx")
 save_as_image(ft, path = "results/beta_results/perm_niche_climate_table.png")
 ```
-
-
-
-
 
