@@ -244,6 +244,25 @@ tern_16S_full_sized_phylum
 # save plot
 ggsave("results/relative_abundance_results/climate_rel_abun_tern_16S_full.png", 
               width = 5, height = 4.5)
+
+# save figure caption
+legend_16S_rel_abun <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum, size = total)) + 
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2")) + 
+  theme(legend.position = "left") + theme_classic()
+legend_16S_rel_abun
+# save plot
+ggsave("results/relative_abundance_results/legend_16S_rel_abun.png", 
+              width = 5, height = 8)
 ```
 
 # Significance test with ANCOM-BC
@@ -357,13 +376,23 @@ rel_abun_site_bar_16S_soil <- ggplot(df, aes(x = Sample, y = Abundance, fill = P
                        Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
                        Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
                        Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
-                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52")) +
   scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
                        Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
                        Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
                        Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
                        Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
-                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52"))
 rel_abun_site_bar_16S_soil
 # save plot
 ggsave("results/relative_abundance_results/rel_abun_bar_site_16S_soil.png", 
@@ -401,13 +430,23 @@ rel_abun_climate_bar_16S_soil <- ggplot(df, aes(x = Sample, y = Abundance, fill 
                        Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
                        Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
                        Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
-                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52")) +
   scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
                        Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
                        Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
                        Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
                        Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
-                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52"))
 rel_abun_climate_bar_16S_soil
 # save plot
 ggsave("results/relative_abundance_results/rel_abun_bar_climate_16S_soil.png", 
@@ -479,6 +518,26 @@ tern_16S_soil_sized_phylum
 # save plot
 ggsave("results/relative_abundance_results/climate_rel_abun_tern_16S_soil.png", 
               width = 5, height = 4.5)
+
+# save figure caption
+legend_16S_rel_abun_soil <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum, size = total)) + 
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52")) + 
+  theme(legend.position = "left") + theme_classic()
+legend_16S_rel_abun_soil
+# save plot
+ggsave("results/relative_abundance_results/legend_16S_rel_abun_soil.png", 
+              width = 5, height = 8)
 ```
 
 # Significance test with ANCOM-BC
@@ -1211,6 +1270,18 @@ tern_ITS_full_sized_phylum
 # save plot
 ggsave("results/relative_abundance_results/climate_rel_abun_tern_ITS_full.png", 
               width = 5, height = 4.5)
+
+# save figure caption
+legend_ITS_rel_abun <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum, size = total)) + 
+  scale_color_manual(values = c(Ascomycota = "#D38B5D", Basidiomycota = "#507A59",  
+                       Mortierellomycota = "#5D4E6D", Mucoromycota = "#5DB7DE", 
+                       Rozellomycota = "#DAB")) + 
+  theme(legend.position = "left") + theme_classic()
+legend_ITS_rel_abun
+# save plot
+ggsave("results/relative_abundance_results/legend_ITS_rel_abun.png", 
+              width = 5, height = 8)
 ```
 
 # Significance test with ANCOM-BC
@@ -1937,6 +2008,122 @@ ancom_roots_ITS <- abun_wet %>%
   full_join(abun_high, by = "taxon") %>%
   full_join(abun_dry, by = "taxon") %>%
   select("taxon", "wet vs. high", "wet vs. dry", "high vs. dry")
+```
+
+
+## Compiled Figures ##
+
+# Ternary plots
+
+```{r}
+# Assuming you have a list of plots:
+plots <- list(tern_16S_full_sized_phylum,
+              tern_16S_soil_sized_phylum,
+              tern_16S_rhizo_sized_phylum,
+              tern_16S_roots_sized_phylum,
+              tern_ITS_full_sized_phylum,
+              tern_ITS_soil_sized_phylum,
+              tern_ITS_rhizo_sized_phylum,
+              tern_ITS_soil_sized_phylum)
+
+# Remove titles and axes labels
+plots <- lapply(plots, function(p) {
+  p + labs(title = NULL, x = NULL, y = NULL) + 
+      theme(axis.title = element_blank(), axis.text = element_blank())
+})
+
+# Combine the modified plots using ggarrange
+full_ternary <- ggarrange(plotlist = plots,
+                          nrow = 2, ncol = 4)
+full_ternary
+# save full plot
+ggsave("results/relative_abundance_results/full_ternary_plot.png", width = 15, height = 6)
+```
+
+# Make composite ANCOM-BC table
+
+```{r}
+# List for 16S
+dfs <- list(ancom_full_16S = ancom_full_16S, 
+            ancom_soil_16S = ancom_soil_16S, 
+            ancom_rhizo_16S = ancom_rhizo_16S, 
+            ancom_roots_16S = ancom_roots_16S)
+suffixes <- c("_full", "_soil", "_rhizo", "_roots")
+
+# Function to rename and join
+process_df <- function(df, suffix) {
+  df %>%
+    rename_with(~ paste0(., suffix), -taxon)  # Rename all columns except 'taxon'
+}
+
+# Process each data frame and join
+ancom_combined_16S <- reduce2(
+  dfs, suffixes, 
+  function(acc, df, suffix) {
+    if (is.null(acc)) {
+      process_df(df, suffix)  # If acc is NULL, initialize with the first processed df
+    } else {
+      left_join(acc, process_df(df, suffix), by = "taxon")  # Join subsequent data frames
+    }
+  },
+  .init = NULL  # Initialize as NULL to start the joining process
+)
+
+# List for ITS
+dfs <- list(ancom_full_ITS = ancom_full_ITS, 
+            ancom_soil_ITS = ancom_soil_ITS, 
+            ancom_rhizo_ITS = ancom_rhizo_ITS, 
+            ancom_roots_ITS = ancom_roots_ITS)
+suffixes <- c("_full", "_soil", "_rhizo", "_roots")
+
+# Process each data frame and join
+ancom_combined_ITS <- reduce2(
+  dfs, suffixes, 
+  function(acc, df, suffix) {
+    if (is.null(acc)) {
+      process_df(df, suffix)  # If acc is NULL, initialize with the first processed df
+    } else {
+      left_join(acc, process_df(df, suffix), by = "taxon")  # Join subsequent data frames
+    }
+  },
+  .init = NULL  # Initialize as NULL to start the joining process
+)
+
+# Combine 16S and ITS and rename columns
+ancom_combined <- ancom_combined_16S %>%
+  bind_rows(ancom_combined_ITS, .id = "amplicon") %>%
+  mutate(amplicon = ifelse(amplicon == 1, "16S", "ITS")) %>%
+  mutate(across(everything(), ~replace_na(.,""))) %>%
+  rename(`All Samples_wet vs. high` = `wet vs. high_full`,
+         `All Samples_wet vs. dry` = `wet vs. dry_full`,
+         `All Samples_high vs. dry` = `high vs. dry_full`,
+         `Soil_wet vs. high` = `wet vs. high_soil`,
+         `Soil_wet vs. dry` = `wet vs. dry_soil`,
+         `Soil_high vs. dry` = `high vs. dry_soil`,
+         `Rhizosphere_wet vs. high` = `wet vs. high_rhizo`,
+         `Rhizosphere_wet vs. dry` = `wet vs. dry_rhizo`,
+         `Rhizosphere_high vs. dry` = `high vs. dry_rhizo`,
+         `Roots_wet vs. high` = `wet vs. high_roots`,
+         `Roots_wet vs. dry` = `wet vs. dry_roots`,
+         `Roots_high vs. dry` = `high vs. dry_roots`)
+
+# make printable table with flextable
+ft <- flextable(ancom_combined) %>%
+  theme_booktabs() %>%
+  add_footer_lines("* indicates p-val < 0.05 and |logfoldchange| < 1") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header(split = "_") %>%
+  align(align = "center", part = "all", j = 2:14) %>%
+  merge_v(j=1) %>%
+  vline(j = c(1,2,5,8,11)) %>%
+  hline(i = c(12)) %>%
+  hline(i = 1, part = "head") %>%
+  autofit()
+ft
+# save the table
+save_as_docx(ft, path = "results/relative_abundance_results/ancombc_table.docx")
+save_as_image(ft, path = "results/relative_abundance_results/ancombc_table.png")
 ```
 
 
