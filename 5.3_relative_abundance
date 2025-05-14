@@ -25,18 +25,9 @@ library(ggtern)
 library(ggplot2)
 library(magrittr)
 ```
+### Full 16S
 
-# Load files (starting with 16S) tss norm
-
-```{r}
-tab <- read.table("asv_tables/tab_tss_16S.txt", header = TRUE, sep = "\t")
-tax <- read.table("asv_tables/tax_raw_16S.txt", header = TRUE, sep = "\t")
-meta <- read.table("asv_tables/meta_full_16S.txt", header = TRUE, sep = "\t")
-# set term
-term <- "_16S"
-```
-
-# Load files (starting with 16S) rarefied
+# Load files
 
 ```{r}
 tab <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
@@ -215,160 +206,69 @@ tern_16S_full_sized_phylum <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry
                        Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
                        Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
                        Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2")) + 
-  theme(legend.position = "none")
+  theme(legend.position = "left")
 tern_16S_full_sized_phylum
 # save plot
 ggsave("results/relative_abundance_results/climate_rel_abun_tern_16S_full.png", 
               width = 5, height = 4.5)
 ```
 
-# Run ANCOM-BC
+# Significance test with ANCOM-BC
 
 ```{r}
-# run ancombc
-out_filt = ancombc(data = ps, 
+# dry
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("dry", "high", "wet"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
               assay_name = "counts", 
               tax_level = "Phylum", 
               formula = "climate", 
               group = "climate" )
-res_filt = out_filt$res
- 
-View(res_filt)
-res_global_filt = out_filt$res_global
- 
-tab_diff_filt = res_filt$diff_abn
- 
-write.csv(tab_diff_filt, file = 
-            paste0("results/relative_abundance_results/phylum_filt_ancom20", 
-                   term, ".csv"))
-
-samp_frac_filt = out_filt$samp_frac
-samp_frac_filt[is.na(samp_frac_filt)] = 0 
-log_obs_abn_filt = log(out_filt$feature_table + 1)
-log_corr_abn_filt = t(t(log_obs_abn_filt) - samp_frac_filt)
- 
-write.csv(log_corr_abn_filt, file = 
-            paste0("results/relative_abundance_results/phylum_filt_ancom_log_corr_abun",
-            term, ".csv"))
-
-# transform log_corr_abn_filtered file
-log_corr_trans <- t(log_corr_abn_filt) %>%
-  merge(meta, by = 0) %>%
-  group_by(climate) %>%
-  summarize(across(c(2:13), mean))
-```
-
-
-
-
-
-
-
-
-# Load raw files (starting with 16S)
-
-```{r}
-tab <- read.table("asv_tables/tab_raw_16S.txt", header = TRUE, sep = "\t")
-tax <- read.table("asv_tables/tax_raw_16S.txt", header = TRUE, sep = "\t")
-meta <- read.table("asv_tables/meta_full_16S.txt", header = TRUE, sep = "\t")
-# set term
-term <- "_16S"
-```
-
-# Make ternary values based on log corr abun
-
-```{r}
-# filter to climate only
-meta_climate <- meta %>%
-  select("climate")
-# stitch to otutab
-ttab <- t(tab)
-x <- merge(meta_climate, ttab, by = "row.names")
-# row sums per climate type
-x_mutated <- x %>%
-  group_by(climate) %>%
-  summarize_if(is.numeric, sum, na.rm = TRUE)
-# reformat data
-tx <- t(x_mutated)
-colnames(tx) <- tx[1,]
-tx <- tx[-1,]
-class(tx)
-tx_1 <- as.data.frame(tx)
-tx_1$wet <- as.numeric(tx_1$wet)
-tx_1$high <- as.numeric(tx_1$high)
-tx_1$dry <- as.numeric(tx_1$dry)
-
-# add taxonomy
-tx_tax <- merge(tx_1, tax, by = "row.names")
-
-# filter to minimum 50 reads
-tx_tax_filt <- tx_tax %>%
-  filter(wet + high + dry > 1000)
-
-# total by phylum
-tx_tax_phy <- tx_tax_filt %>%
-  group_by(Phylum) %>%
-  summarize_if(is.numeric, mean, na.rm = TRUE)
-
-# add relative abundances
-tx_tax_phy_rel <- tx_tax_phy %>%
-  mutate(total_abundance = wet + high + dry) %>%
-  mutate(WET = wet/total_abundance) %>%
-  mutate(HIGH = high/total_abundance) %>%
-  mutate(DRY = dry/total_abundance)
-
-# reorder
-tx_reord <- tx_tax_phy_rel %>%
-  arrange(desc(total_abundance))
-  
-# make ternary plot
-ggtern(data = tx_tax, aes(wet, high, dry)) +
-  geom_point(aes(color = Phylum))
-
-# make ternary plot of filtered data
-ggtern(data = tx_tax_filt, aes(wet, high, dry)) +
-  geom_point(aes(color = Phylum))
-
-# make ternary plot of phylums
-ggtern(data = tx_tax_phy, aes(wet, high, dry)) +
-  geom_point(aes(color = Phylum))
-
-# make ternary plot of phylum rel abun vs. total abun
-ggtern(data = tx_tax_phy_rel, aes(WET, HIGH, DRY)) +
-  geom_point(aes(color = Phylum, size = total_abundance)) + 
-  theme(legend.text = element_text(size = 8))
-
-# something wrong with NA keep an eye on the color coding
-
-# color key for fungi
-ggtern(data = tx_reord, aes(WET, HIGH, DRY)) +
-  geom_point(aes(color = Phylum, size = total_abundance)) + 
-  scale_color_manual(values = c(Basidiomycota = "#393B79", unidentified = "#636363", 
-                       Ascomycota = "#637939", `NA` = "#969696", 
-                       Mucoromycota = "#8C6D31", Mortierellomycota = "#843C39", 
-                       Rozellomycota = "#7B4173", Chytridiomycota = "#5254A3", 
-                       Monoblepharomycota = "#8CA252", Glomeromycota = "#BD9E39",
-                       Kickxellomycota = "#AD494A")) +
-  theme(legend.text = element_text(size = 8))
-
-# color key for bacteria
-ggtern(data = tx_reord, aes(WET, HIGH, DRY)) +
-  geom_point(aes(color = Phylum, size = total_abundance)) + 
-  scale_color_manual(values = c(Thaumarchaeota = "#393B79", Actinobacteria = "#637939",  
-                       Proteobacteria = "#8C6D31", Tenericutes = "#843C39", 
-                       Verrucomicrobia = "#7B4173", Acidobacteria = "#5254A3", 
-                       Firmicutes = "#8CA252", Bacteroidetes = "#BD9E39",
-                       Gemmatimonadetes = "#AD494A", Patescibacteria = "#A55194", 
-                       Chloroflexi = "#6B6ECF", Planctomycetes = "#B5CF6B", 
-                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
-                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
-                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
-                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2")) +
-  theme(legend.text = element_text(size = 8))
-
-# save phylum ternary plot
-ggsave(paste0("~/Desktop/R/incline/qiime_results/analysis_results/", term, 
-              "tern.png"), width = 7, height = 7)
+abun_test <- out$res$diff_abn
+abun_dry <- abun_test %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`dry vs. wet` = climatewet, `dry vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# high
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("high", "wet", "dry"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_high <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  rename(`high vs. dry` = climatedry, `high vs. wet` = climatewet) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# wet
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("wet", "dry", "high"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_wet <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`wet vs. dry` = climatedry, `wet vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# combine dataframes
+ancom_full_16S <- abun_wet %>%
+  full_join(abun_high, by = "taxon") %>%
+  full_join(abun_dry, by = "taxon") %>%
+  select("taxon", "wet vs. high", "wet vs. dry", "high vs. dry")
 ```
 
 
