@@ -541,3 +541,474 @@ ancom_soil_16S <- abun_wet %>%
 
 
 
+### Rhizo 16S ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rhizo_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S_rhizo"
+```
+
+# Make Phyloseq Object
+
+```{r}
+ps <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.data.frame(tax) %>% 
+              as.matrix()),
+  sample_data(meta))
+```
+
+# checking relative abundance in Phyloseq directly
+
+```{r}
+## Site
+# To simplify the data
+ps = prune_taxa(taxa_sums(ps) > 1000, ps)
+# Merge sample by their sampling site
+merged_ps = merge_samples(ps, "site") # summed
+merged_ps
+# normalize samples
+total = median(sample_sums(merged_ps))
+standf = function(x, t=total) round(t * (x / sum(x)))
+normalized_ps = transform_sample_counts(merged_ps, standf)
+normalized_ps_relabun = transform_sample_counts(normalized_ps, 
+                                                        function(OTU) OTU/sum(OTU) * 100)
+# converting to a dataframe for more customized chart
+df <- psmelt(normalized_ps_relabun)
+# rearrange
+df$Sample <- factor(df$Sample, levels = c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4",
+                                      "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# plot
+rel_abun_site_bar_16S_rhizo <- ggplot(df, aes(x = Sample, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_classic() +
+  labs(x = "Site", y = "Relative Abundance") +
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+  scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+rel_abun_site_bar_16S_rhizo
+# save plot
+ggsave("results/relative_abundance_results/rel_abun_bar_site_16S_rhizo.png", 
+              width = 8, height = 4)
+
+## Climate
+# reload phyloseq object
+ps <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.data.frame(tax) %>% 
+              as.matrix()),
+  sample_data(meta))
+# prune and normalize
+ps = prune_taxa(taxa_sums(ps) > 1000, ps)
+# Merge sample by their sampling site
+merged_ps = merge_samples(ps, "climate") # summed
+merged_ps
+# normalize samples
+total = median(sample_sums(merged_ps))
+standf = function(x, t=total) round(t * (x / sum(x)))
+normalized_ps = transform_sample_counts(merged_ps, standf)
+normalized_ps_relabun = transform_sample_counts(normalized_ps, 
+                                                        function(OTU) OTU/sum(OTU) * 100)
+# convert to a dataframe for more customized chart
+df <- psmelt(normalized_ps_relabun)
+# rearrange
+df$Sample <- factor(df$Sample, levels = c("wet", "high", "dry"))
+# plot
+rel_abun_climate_bar_16S_rhizo <- ggplot(df, aes(x = Sample, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_classic() +
+  labs(x = "Climate Type", y = "Relative Abundance") +
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+  scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+rel_abun_climate_bar_16S_rhizo
+# save plot
+ggsave("results/relative_abundance_results/rel_abun_bar_climate_16S_rhizo.png", 
+              width = 4, height = 4)
+```
+
+# Ternary Plot
+
+```{r}
+# extract relative abundance from physeq object
+tab <- normalized_ps_relabun@otu_table
+tab <- as.data.frame(tab)
+tax <- normalized_ps_relabun@tax_table
+tax <- as.data.frame(tax)
+# stitch them together
+ttab <- t(tab)
+ttab_tax <- ttab %>%
+  merge(tax, by = 0)
+dim(ttab)
+dim(tax)
+dim(ttab_tax)
+# make ternary plot
+tern_16S_rhizo_asv <- ggtern(data = ttab_tax, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum)) 
+tern_16S_rhizo_asv
+# summarize by phylum
+ttab_tax_phylum <- ttab_tax %>%
+  select(c(2:4,6)) %>%
+  group_by(Phylum) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+# replot
+tern_16S_rhizo_phylum <- ggtern(data = ttab_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum))
+tern_16S_rhizo_phylum
+
+# trying again with total abundance as well
+tabt <- as.data.frame(merged_ps@otu_table)
+ttabt <- t(tabt)
+ttabt <- ttabt %>%
+  as.data.frame() %>%
+  mutate(total = wet + high + dry) %>%
+  select(total)
+# combine with tax
+ttabt_tax <- ttabt %>%
+  rownames_to_column("Row.names") %>%
+  inner_join(ttab_tax, by = "Row.names")
+
+# summarize by phylum
+ttabt_tax_phylum <- ttabt_tax %>%
+  select(c(2:5,7)) %>%
+  group_by(Phylum) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+# replot
+tern_16S_rhizo_sized_phylum <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum, size = total)) + 
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52")) + 
+  theme(legend.position = "none")
+tern_16S_rhizo_sized_phylum
+# save plot
+ggsave("results/relative_abundance_results/climate_rel_abun_tern_16S_rhizo.png", 
+              width = 5, height = 4.5)
+```
+
+# Significance test with ANCOM-BC
+
+```{r}
+# dry
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("dry", "high", "wet"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_dry <- abun_test %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`dry vs. wet` = climatewet, `dry vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# high
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("high", "wet", "dry"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_high <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  rename(`high vs. dry` = climatedry, `high vs. wet` = climatewet) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# wet
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("wet", "dry", "high"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_wet <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`wet vs. dry` = climatedry, `wet vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# combine dataframes
+ancom_rhizo_16S <- abun_wet %>%
+  full_join(abun_high, by = "taxon") %>%
+  full_join(abun_dry, by = "taxon") %>%
+  select("taxon", "wet vs. high", "wet vs. dry", "high vs. dry")
+```
+
+
+
+### Roots 16S ###
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_root_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_root_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_root_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S_roots"
+```
+
+# Make Phyloseq Object
+
+```{r}
+ps <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.data.frame(tax) %>% 
+              as.matrix()),
+  sample_data(meta))
+```
+
+# checking relative abundance in Phyloseq directly
+
+```{r}
+## Site
+# To simplify the data
+ps = prune_taxa(taxa_sums(ps) > 1000, ps)
+# Merge sample by their sampling site
+merged_ps = merge_samples(ps, "site") # summed
+merged_ps
+# normalize samples
+total = median(sample_sums(merged_ps))
+standf = function(x, t=total) round(t * (x / sum(x)))
+normalized_ps = transform_sample_counts(merged_ps, standf)
+normalized_ps_relabun = transform_sample_counts(normalized_ps, 
+                                                        function(OTU) OTU/sum(OTU) * 100)
+# converting to a dataframe for more customized chart
+df <- psmelt(normalized_ps_relabun)
+# rearrange
+df$Sample <- factor(df$Sample, levels = c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4",
+                                      "TR3.5", "TR3", "TR2.5", "TR2", "TR1"))
+# plot
+rel_abun_site_bar_16S_roots <- ggplot(df, aes(x = Sample, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_classic() +
+  labs(x = "Site", y = "Relative Abundance") +
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+  scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+rel_abun_site_bar_16S_roots
+# save plot
+ggsave("results/relative_abundance_results/rel_abun_bar_site_16S_roots.png", 
+              width = 8, height = 4)
+
+## Climate
+# reload phyloseq object
+ps <- phyloseq(
+  otu_table(tab, taxa_are_rows = T),
+  tax_table(as.data.frame(tax) %>% 
+              as.matrix()),
+  sample_data(meta))
+# prune and normalize
+ps = prune_taxa(taxa_sums(ps) > 1000, ps)
+# Merge sample by their sampling site
+merged_ps = merge_samples(ps, "climate") # summed
+merged_ps
+# normalize samples
+total = median(sample_sums(merged_ps))
+standf = function(x, t=total) round(t * (x / sum(x)))
+normalized_ps = transform_sample_counts(merged_ps, standf)
+normalized_ps_relabun = transform_sample_counts(normalized_ps, 
+                                                        function(OTU) OTU/sum(OTU) * 100)
+# convert to a dataframe for more customized chart
+df <- psmelt(normalized_ps_relabun)
+# rearrange
+df$Sample <- factor(df$Sample, levels = c("wet", "high", "dry"))
+# plot
+rel_abun_climate_bar_16S_roots <- ggplot(df, aes(x = Sample, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  theme_classic() +
+  labs(x = "Climate Type", y = "Relative Abundance") +
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B")) +
+  scale_fill_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B"))
+rel_abun_climate_bar_16S_roots
+# save plot
+ggsave("results/relative_abundance_results/rel_abun_bar_climate_16S_roots.png", 
+              width = 4, height = 4)
+```
+
+# Ternary Plot
+
+```{r}
+# extract relative abundance from physeq object
+tab <- normalized_ps_relabun@otu_table
+tab <- as.data.frame(tab)
+tax <- normalized_ps_relabun@tax_table
+tax <- as.data.frame(tax)
+# stitch them together
+ttab <- t(tab)
+ttab_tax <- ttab %>%
+  merge(tax, by = 0)
+dim(ttab)
+dim(tax)
+dim(ttab_tax)
+# make ternary plot
+tern_16S_roots_asv <- ggtern(data = ttab_tax, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum)) 
+tern_16S_roots_asv
+# summarize by phylum
+ttab_tax_phylum <- ttab_tax %>%
+  select(c(2:4,6)) %>%
+  group_by(Phylum) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+# replot
+tern_16S_roots_phylum <- ggtern(data = ttab_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum))
+tern_16S_roots_phylum
+
+# trying again with total abundance as well
+tabt <- as.data.frame(merged_ps@otu_table)
+ttabt <- t(tabt)
+ttabt <- ttabt %>%
+  as.data.frame() %>%
+  mutate(total = wet + high + dry) %>%
+  select(total)
+# combine with tax
+ttabt_tax <- ttabt %>%
+  rownames_to_column("Row.names") %>%
+  inner_join(ttab_tax, by = "Row.names")
+
+# summarize by phylum
+ttabt_tax_phylum <- ttabt_tax %>%
+  select(c(2:5,7)) %>%
+  group_by(Phylum) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+# replot
+tern_16S_roots_sized_phylum <- ggtern(data = ttabt_tax_phylum, aes(wet, high, dry)) +
+  geom_point(aes(color = Phylum, size = total)) + 
+  scale_color_manual(values = c(Acidobacteriota = "#393B79", Actinomycetota = "#637939",  
+                       Bacillota = "#8C6D31", Bacteroidota = "#843C39", 
+                       Chloroflexota = "#7B4173", Gemmatimonadota = "#5254A3", 
+                       Myxococcota = "#8CA252", Patescibacteria = "#BD9E39",
+                       Planctomycetota = "#AD494A", Pseudomonadota = "#A55194", 
+                       Thermoproteota = "#6B6ECF", Verrucomicrobiota = "#B5CF6B", 
+                       `NA` = "#969696", Rokubacteria = "#E7BA52", Chlamydiae = "#D6616B", 
+                       Latescibacteria = "#CE6DBD", BRC1 = "#9C9EDE", Armatimonadetes = "#CEDB9C", 
+                       Cyanobacteria = "#E7CB94", Fibrobacteres = "#E7969C", 
+                       Dependentiae = "#DE9ED6", Spirochaetes = "#D5E4A2", 
+                       Methylomirabilota = "#E7BA52")) + 
+  theme(legend.position = "none")
+tern_16S_roots_sized_phylum
+# save plot
+ggsave("results/relative_abundance_results/climate_rel_abun_tern_16S_roots.png", 
+              width = 5, height = 4.5)
+```
+
+# Significance test with ANCOM-BC
+
+```{r}
+# dry
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("dry", "high", "wet"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_dry <- abun_test %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`dry vs. wet` = climatewet, `dry vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# high
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("high", "wet", "dry"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_high <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatewet = ifelse(climatewet == TRUE, "*", as.character())) %>%
+  rename(`high vs. dry` = climatedry, `high vs. wet` = climatewet) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# wet
+meta_data <- microbiome::meta(ps)
+meta_data$climate <- factor(meta_data$climate, levels = c("wet", "dry", "high"))
+phyloseq::sample_data(ps) <- meta_data # change reference group
+out <- ancombc(data = ps, 
+              assay_name = "counts", 
+              tax_level = "Phylum", 
+              formula = "climate", 
+              group = "climate" )
+abun_test <- out$res$diff_abn
+abun_wet <- abun_test %>%
+  mutate(climatedry = ifelse(climatedry == TRUE, "*", as.character())) %>%
+  mutate(climatehigh = ifelse(climatehigh == TRUE, "*", as.character())) %>%
+  rename(`wet vs. dry` = climatedry, `wet vs. high` = climatehigh) %>%
+  select(-c(2)) %>%
+  mutate(across(everything(), ~replace_na(.,"")))
+# combine dataframes
+ancom_roots_16S <- abun_wet %>%
+  full_join(abun_high, by = "taxon") %>%
+  full_join(abun_dry, by = "taxon") %>%
+  select("taxon", "wet vs. high", "wet vs. dry", "high vs. dry")
+```
+
+
