@@ -2126,4 +2126,67 @@ save_as_docx(ft, path = "results/relative_abundance_results/ancombc_table.docx")
 save_as_image(ft, path = "results/relative_abundance_results/ancombc_table.png")
 ```
 
+# Make composite site bar plots
+
+```{r}
+# compile 16S plots
+full_site_rel_abun_16S <- ggarrange(rel_abun_site_bar_16S_full,
+                                rel_abun_site_bar_16S_soil,
+                                rel_abun_site_bar_16S_rhizo,
+                                rel_abun_site_bar_16S_roots,
+                                nrow = 1, ncol = 4, 
+                                common.legend = TRUE,
+                                legend = "right")
+full_site_rel_abun_16S
+# compile ITS plots
+full_site_rel_abun_ITS <- ggarrange(rel_abun_site_bar_ITS_full,
+                                rel_abun_site_bar_ITS_soil,
+                                rel_abun_site_bar_ITS_rhizo,
+                                rel_abun_site_bar_ITS_roots,
+                                nrow = 1, ncol = 4, 
+                                common.legend = TRUE,
+                                legend = "right")
+full_site_rel_abun_ITS
+# compile together
+full_site_rel_abun <- ggarrange(full_site_rel_abun_16S, 
+                                full_site_rel_abun_ITS,
+                                nrow = 2)
+full_site_rel_abun
+# save full plot
+ggsave("results/relative_abundance_results/full_site_rel_abun_bar.png", width = 21, height = 9)
+```
+
+# Niche and climate composite figure
+
+```{r}
+# compile 16S plots
+full_niche_climate_rel_abun_16S <- ggarrange(rel_abun_niche_bar_16S_full,
+                                rel_abun_climate_bar_16S_full,
+                                rel_abun_climate_bar_16S_soil,
+                                rel_abun_climate_bar_16S_rhizo,
+                                rel_abun_climate_bar_16S_roots,
+                                nrow = 1, ncol = 5, 
+                                common.legend = TRUE,
+                                legend = "right")
+full_niche_climate_rel_abun_16S
+# compile ITS plots
+full_niche_climate_rel_abun_ITS <- ggarrange(rel_abun_niche_bar_ITS_full,
+                                rel_abun_climate_bar_ITS_full,
+                                rel_abun_climate_bar_ITS_soil,
+                                rel_abun_climate_bar_ITS_rhizo,
+                                rel_abun_climate_bar_ITS_roots,
+                                nrow = 1, ncol = 5, 
+                                common.legend = TRUE,
+                                legend = "right")
+full_niche_climate_rel_abun_ITS
+# compile together
+full_niche_climate_rel_abun <- ggarrange(full_niche_climate_rel_abun_16S, 
+                                full_niche_climate_rel_abun_ITS,
+                                nrow = 2)
+full_niche_climate_rel_abun
+# save full plot
+ggsave("results/relative_abundance_results/full_niche_climate_rel_abun_bar.png", 
+       width = 13, height = 9)
+```
+
 
