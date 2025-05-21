@@ -1,103 +1,182 @@
-To calculate SparCC (Sparse Correlations for Compositional Data) using the SpiecEasi package in R and subsequently create co-occurrence networks from your amplicon dataset involving bacteria, archaea, and fungi, follow these general steps:
+---
+title: "cooccurence_network_2"
+author: "kathryn_bazany"
+date: "2025-05-21"
+output: html_document
+---
 
-### Step 1: Install and Load Required Packages
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-You need to have R and relevant packages installed. If you haven't already, you can install the necessary packages using:
+# Install Packages
 
-```R
-install.packages("devtools")  # For installing from GitHub
+SpiecEasi was extremely difficult to install. Need to download homebrew, gcc, gfortran, xcode and others in the terminal and specify paths to them by writing ~/.R/Makevars 
+
+install.packages(c(
+  "pulsar", "huge", "MASS", "igraph", "Matrix",
+  "phyloseq", "corpcor", "MatrixModels", "parallel"
+))
+install.packages(devtools)
+
+# load packages
+
+```{r}
+library(phyloseq)
+library(tidyverse)
+library(pulsar)
+library(igraph)
+library(phyloseq)
+library(Matrix)
+library(corpcor)
+library(MatrixModels)
+library(parallel)
+library(huge)
+library(MASS)
+library(Matrix)
+library(pulsar)
+library(VGAM)
+library(BiocManager)
+```
+
+# install SpeicEasi 
+
+You will likely need a github token for this step: 
+https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
+
 devtools::install_github("zdk123/SpiecEasi")
-install.packages("igraph")  # For visualizing the network
-```
 
-After installation, load the necessary libraries:
+# load SpeicEasi
 
-```R
+```{r}
 library(SpiecEasi)
-library(igraph)
 ```
 
-### Step 2: Prepare Your Dataset
+# Load files
 
-Your dataset should be in a format that SpiecEasi can read. Generally, you need a count matrix (OTU table) where rows represent samples and columns represent different operational taxonomic units (OTUs). Ensure that your data is in a matrix or dataframe format with OTU counts.
+We will be making a total of 3 networks, one for the wet sites, one for the high sites, one for the dry sites. SpeicEasi wants standard singly rarefied tables.
 
-```R
-# Assume your count data is in 'otu_table'
-# For example, otu_table <- read.csv("path_to_your_OTU_table.csv", row.names=1)
+```{r}
+tab_16S <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
+tax_16S <- read.table("asv_tables/tax_rare_16S.txt", header = TRUE, sep = "\t")
+meta_16S <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
+tab_ITS <- read.table("asv_tables/tab_rare_ITS.txt", header = TRUE, sep = "\t")
+tax_ITS <- read.table("asv_tables/tax_rare_ITS.txt", header = TRUE, sep = "\t")
+meta_ITS <- read.table("asv_tables/meta_rare_ITS.txt", header = TRUE, sep = "\t")
 ```
 
-### Step 3: Preprocess the Data
+# make tabs with common sample names in the same order
 
-Make sure your data is suitable for analysis. This may include subsetting your data to only include significant taxa, filtering out low-abundance OTUs, or transforming your data.
-
-```R
-# Filter out low-abundance OTUs if necessary
-otu_filtered <- otu_table[rowSums(otu_table) > threshold, ]  # Set an appropriate threshold
+```{r}
+# check dimensions
+dim(tab_16S)
+dim(tab_ITS)
+# check common column names
+common_cols <- intersect(names(tab_16S), names(tab_ITS))
+common_cols # 97 in common
+# Reordering to have the same column names and same order
+tab_16S <- tab_16S %>% select(all_of(common_cols))
+tab_ITS <- tab_ITS %>% select(all_of(common_cols))
+# check dimensions
+dim(tab_16S)
+dim(tab_ITS)
 ```
 
-### Step 4: Run SpiecEasi
+# make phyloseq objects
 
-Now use the `spiec.easi` function to calculate SparCC correlations.
-
-```R
-# Use the method 'sparcc' for SparCC correlation
-spiec_out <- spiec.easi(otu_filtered, method = "sparcc", ncpus = 1, return.whole = TRUE)
+```{r}
+ps_16S <- phyloseq(
+  otu_table(tab_16S, taxa_are_rows = T),
+  tax_table(as.data.frame(tax_16S) %>% 
+              as.matrix()),
+  sample_data(meta_16S))
+ps_ITS <- phyloseq(
+  otu_table(tab_ITS, taxa_are_rows = T),
+  tax_table(as.data.frame(tax_ITS) %>%
+              as.matrix()),
+  sample_data(meta_ITS))
 ```
 
-### Step 5: Extract the Network
+# cut the data into climate types
 
-Now you can extract the network from the SpiecEasi output.
-
-```R
-# Extract the adjacency matrix
-adjacency_matrix <- getRefit(spiec_out)
-
-# Create the network graph
-network_graph <- graph_from_adjacency_matrix(adjacency_matrix, mode = "undirected", weighted = TRUE, diag = FALSE)
+```{r}
+ps_16S_wet <- subset_samples(ps_16S, climate == "wet")
+ps_16S_high <- subset_samples(ps_16S, climate == "high")
+ps_16S_dry <- subset_samples(ps_16S, climate == "dry")
+ps_ITS_wet <- subset_samples(ps_ITS, climate == "wet")
+ps_ITS_high <- subset_samples(ps_ITS, climate == "high")
+ps_ITS_dry <- subset_samples(ps_ITS, climate == "dry")
 ```
 
-### Step 6: Visualize the Network
+# simplify the data
 
-Now visualize the co-occurrence network using the igraph package.
-
-```R
-# Plot the network
-plot(network_graph, vertex.size=5, vertex.label.cex=0.7, layout=layout_with_fr)
+```{r}
+ps_16S_wet = prune_taxa(taxa_sums(ps_16S_wet) > 1000, ps_16S_wet)
+ps_16S_high = prune_taxa(taxa_sums(ps_16S_high) > 1000, ps_16S_high)
+ps_16S_dry = prune_taxa(taxa_sums(ps_16S_dry) > 1000, ps_16S_dry)
+ps_ITS_wet = prune_taxa(taxa_sums(ps_ITS_wet) > 1000, ps_ITS_wet)
+ps_ITS_high = prune_taxa(taxa_sums(ps_ITS_high) > 1000, ps_ITS_high)
+ps_ITS_dry = prune_taxa(taxa_sums(ps_ITS_dry) > 1000, ps_ITS_dry)
 ```
 
-### Additional Steps: Customize Your Network
+# make the wet network 16S
 
-You can further customize your visualization by adjusting parameters for aesthetics, such as vertex colors, sizes, and edge weights. 
-
-### Step 7: Analyze and Interpret
-
-Look at the edges, node centrality, and clusters to analyze the interactions present in your microbial community. 
-
-### Note:
-- Make sure to handle your data and interpret results carefully considering statistical significance and biological relevance.
-- Keep in mind that network analyses can become complex and may require additional tools for in-depth interpretations.
-
-### Example Workflow
-
-Here’s a brief recap of a full example workflow (assuming data is correctly loaded in `otu_table`):
-
-```R
-# Load necessary libraries
-library(SpiecEasi)
-library(igraph)
-
-# Prepare data (filter, transformation if needed)
-otu_filtered <- otu_table[rowSums(otu_table) > 10, ]  # Example threshold
-
-# Run SparCC correlation
-spiec_out <- spiec.easi(otu_filtered, method = "sparcc", ncpus = 1, return.whole = TRUE)
-
-# Get adjacency matrix
-adjacency_matrix <- getRefit(spiec_out)
-
-# Create and plot network
-network_graph <- graph_from_adjacency_matrix(as.matrix(adjacency_matrix), mode = "undirected", weighted = TRUE, diag = FALSE)
-plot(network_graph, vertex.size=5, vertex.label.cex=0.7)
+```{r}
+se_16S_wet <- spiec.easi(ps_16S_wet, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_16S_wet <- adj2igraph(getRefit(se_16S_wet),  vertex.attr=list(name=taxa_names(ps_16S_wet)))
+nw_16S_wet <- plot_network(ig_16S_wet, ps_16S_wet, type='taxa', color="Phylum")
+nw_16S_wet
 ```
 
-Adjust the parameters and methods according to your analysis needs and dataset characteristics.
+# make wet network ITS
+
+```{r}
+se_ITS_wet <- spiec.easi(ps_ITS_wet, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_ITS_wet <- adj2igraph(getRefit(se_ITS_wet),  vertex.attr=list(name=taxa_names(ps_ITS_wet)))
+nw_ITS_wet <- plot_network(ig_ITS_wet, ps_ITS_wet, type='taxa', color="Phylum")
+nw_ITS_wet
+```
+
+# make the high network 16S
+
+```{r}
+se_16S_high <- spiec.easi(ps_16S_high, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_16S_high <- adj2igraph(getRefit(se_16S_high),  vertex.attr=list(name=taxa_names(ps_16S_high)))
+nw_16S_high <- plot_network(ig_16S_high, ps_16S_high, type='taxa', color="Phylum")
+nw_16S_high
+```
+
+# make the high network ITS
+
+```{r}
+se_ITS_high <- spiec.easi(ps_ITS_high, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_ITS_high <- adj2igraph(getRefit(se_ITS_high),  vertex.attr=list(name=taxa_names(ps_ITS_high)))
+nw_ITS_high <- plot_network(ig_ITS_high, ps_ITS_high, type='taxa', color="Phylum")
+nw_ITS_high
+```
+
+# make the dry network 16S
+
+```{r}
+se_16S_dry <- spiec.easi(ps_16S_dry, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_16S_dry <- adj2igraph(getRefit(se_16S_dry),  vertex.attr=list(name=taxa_names(ps_16S_dry)))
+nw_16S_dry <- plot_network(ig_16S_dry, ps_16S_dry, type='taxa', color="Phylum")
+nw_16S_dry
+```
+
+# make the dry network ITS
+
+```{r}
+se_ITS_dry <- spiec.easi(ps_ITS_dry, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params=list(rep.num=50))
+ig_ITS_dry <- adj2igraph(getRefit(se_ITS_dry),  vertex.attr=list(name=taxa_names(ps_ITS_dry)))
+nw_ITS_dry <- plot_network(ig_ITS_dry, ps_ITS_dry, type='taxa', color="Phylum")
+nw_ITS_dry
+```
+
+
