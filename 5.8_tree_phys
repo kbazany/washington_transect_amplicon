@@ -1,0 +1,221 @@
+---
+title: "tree_phys"
+author: "kathryn_bazany"
+date: "2025-06-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# install packages
+
+# load packages
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(ggpubr)
+```
+
+# read in files
+
+```{r}
+tree <- read_delim(file = "tree_phys.csv", delim = ",")
+```
+
+# modify tree file, combine with metadata
+
+```{r}
+data <- tree %>%
+  rename("tree" = "Tree",
+         "site" = "Site") %>%
+  mutate(climate = case_when(
+    site == "CR1" ~ "wet",
+    site == "CR1.5" ~ "wet",
+    site == "CR2" ~ "wet",
+    site == "CR3" ~ "wet",
+    site == "CR4" ~ "high",
+    site == "TR4" ~ "high",
+    site == "TR3.5" ~ "high",
+    site == "TR3" ~ "high",
+    site == "TR2.5" ~ "dry",
+    site == "TR2" ~ "dry",
+    site == "TR1" ~ "dry"
+    ))
+```
+
+# run mixed effects model with tree as a random effect
+
+```{r}
+### gsw
+## site
+# model
+mixed = lmer(gsw ~ site + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
+
+## site
+# model
+mixed = lmer(gsw ~ climate + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
+
+### VPDleaf
+## site
+# model
+mixed = lmer(VPDleaf ~ site + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
+
+## site
+# model
+mixed = lmer(VPDleaf ~ climate + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
+```
+
+# boxplots
+
+Site boxplots
+```{r}
+# rearrange sites and remove NAs
+data_reor <- data %>%
+  drop_na(site)
+data_reor$site <- factor(data_reor$site, levels = c("CR1", "CR1.5", "CR2", 
+                                                          "CR3", "CR4", "TR4", "TR3.5",
+                                                          "TR3", "TR2.5", "TR2", "TR1"))
+## gsw 
+# shan boxplot
+gsw_box <- ggplot(data_reor, aes(x = site, y = gsw)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Site") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+gsw_box
+
+## VPDleaf
+# shan boxplot
+vpdleaf_box <- ggplot(data_reor, aes(x = site, y = VPDleaf)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Site") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+vpdleaf_box
+
+## PhiPSII
+data_reor_1 <- data_reor
+data_reor_1$tree <- as.factor(data_reor_1$tree)
+ps2_box <- ggplot(data_reor, aes(x = site, y = PhiPS2)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Site") + ylab("PSII") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+ps2_box
+```
+
+Climate boxplots
+
+```{r}
+## gsw
+data_reor$climate <- factor(data_reor$climate, levels = c("wet", "high", "dry"))
+# shan boxplot
+gsw_box_clim <- ggplot(data_reor, aes(x = climate, y = gsw)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Climate") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+gsw_box_clim
+
+## VPDleaf
+# shan boxplot
+vpdleaf_box_clim <- ggplot(data_reor, aes(x = climate, y = VPDleaf)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Climate") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+vpdleaf_box_clim
+
+## PhiPSII
+ps2_box_clim <- ggplot(data_reor, aes(x = climate, y = PhiPS2)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  xlab("Climate") + ylab("PSII") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+ps2_box_clim
+```
+
+# combine figures
+setwd("results/")
+dir.create("tree_phys")
+```{r}
+# set path
+setwd("results/tree_phys/")
+# arrange
+full_plot <- ggarrange(gsw_box, gsw_box_clim, 
+                       vpdleaf_box, vpdleaf_box_clim,
+                       ps2_box, ps2_box_clim,
+                       nrow = 3, ncol = 2, 
+                       widths = c(3, 1), 
+                       common.legend = TRUE, legend = "right")
+full_plot
+# save full plot
+ggsave("tree_phys.png", width = 10, height = 6)
+```
+
+
