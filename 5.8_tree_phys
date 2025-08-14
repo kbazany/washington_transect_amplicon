@@ -17,6 +17,9 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 library(lme4)
 library(ggpubr)
+library(broom)
+library(agricolae)
+library(flextable)
 ```
 
 # read in files
@@ -216,6 +219,447 @@ full_plot <- ggarrange(gsw_box, gsw_box_clim,
 full_plot
 # save full plot
 ggsave("tree_phys.png", width = 10, height = 6)
+```
+
+
+# Combine the tree phys data with the site metadata somehow...
+
+```{r}
+# load metadata
+meta <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
+# filter down to rhizo so we only have one set of climate data per tree
+meta <- meta %>%
+  filter(niche == "rhizo")
+# combine tables
+tree_clim <- meta %>%
+  full_join(data, by = join_by(tree)) %>% # merge by tree number
+  filter(longitude != "NA") # remove mislabeled or non-labeled trees
+write_delim(tree_clim, "results/tree_phys/tree_clim.csv", delim = ",")
+```
+
+
+# Run some sort of statistical test to see if altitude, temperature, and precipitation have a significant relationship with tree stress:
+
+
+# ANOVAs for site and climate
+
+```{r}
+# run glms
+gsw.y_glm <- glm(gsw.y ~ climate.x, data = tree_clim)
+# run anova
+gsw.y_clim_anova <- car::Anova(gsw.y_glm, test.statistic = "F")
+gsw.y_clim_anova
+
+gsw.y_glm <- glm(gsw.y ~ site.x, data = tree_clim)
+gsw.y_site_anova <- car::Anova(gsw.y_glm, test.statistic = "F")
+gsw.y_site_anova
+
+VPDleaf.y_glm <- glm(VPDleaf.y ~ climate.x, data = tree_clim)
+VPDleaf.y_clim_anova <- car::Anova(VPDleaf.y_glm, test.statistic = "F")
+VPDleaf.y_clim_anova
+
+VPDleaf.y_glm <- glm(VPDleaf.y ~ site.x, data = tree_clim)
+VPDleaf.y_site_anova <- car::Anova(VPDleaf.y_glm, test.statistic = "F")
+VPDleaf.y_site_anova
+
+PhiPS2_glm <- glm(PhiPS2 ~ climate.x, data = tree_clim)
+PhiPS2_clim_anova <- car::Anova(PhiPS2_glm, test.statistic = "F")
+PhiPS2_clim_anova
+
+PhiPS2_glm <- glm(PhiPS2 ~ site.x, data = tree_clim)
+PhiPS2_site_anova <- car::Anova(PhiPS2_glm, test.statistic = "F")
+PhiPS2_site_anova
+
+# save anovas
+gsw_clim_anova <- tidy(gsw.y_clim_anova)
+gsw_site_anova <- tidy(gsw.y_site_anova)
+VPDleaf_clim_anova <- tidy(VPDleaf.y_clim_anova)
+VPDleaf_site_anova <- tidy(VPDleaf.y_site_anova)
+PhiPS2_clim_anova <- tidy(PhiPS2_clim_anova)
+PhiPS2_site_anova <- tidy(PhiPS2_site_anova)
+```
+
+
+# Tukey HSD
+
+```{r}
+# Tukey HSD
+hsd_climate.x_gsw.y <- HSD.test(aov(gsw.y ~ climate.x, data = tree_clim), "climate.x", group = T)
+hsd_site.x_gsw.y <- HSD.test(aov(gsw.y ~ site.x, data = tree_clim), "site.x", group = T)
+hsd_climate.x_VPDleaf.y <- HSD.test(aov(VPDleaf.y ~ climate.x, data = tree_clim), "climate.x", group = T)
+hsd_site.x_VPDleaf.y <- HSD.test(aov(VPDleaf.y ~ site.x, data = tree_clim), "site.x", group = T)
+hsd_climate.x_PhiPS2 <- HSD.test(aov(PhiPS2 ~ climate.x, data = tree_clim), "climate.x", group = T)
+hsd_site.x_PhiPS2 <- HSD.test(aov(PhiPS2 ~ site.x, data = tree_clim), "site.x", group = T)
+
+hsd_climate.x_gsw.y_16S <- hsd_climate.x_gsw.y$groups
+hsd_site.x_gsw.y_16S <- hsd_site.x_gsw.y$groups
+hsd_climate.x_VPDleaf.y_16S <- hsd_climate.x_VPDleaf.y$groups
+hsd_site.x_VPDleaf.y_16S <- hsd_site.x_VPDleaf.y$groups
+hsd_climate.x_PhiPS2_16S <- hsd_climate.x_PhiPS2$groups
+hsd_site.x_PhiPS2_16S <- hsd_site.x_PhiPS2$groups
+
+hsd_climate.x_gsw.y_16S
+hsd_site.x_gsw.y_16S
+hsd_climate.x_VPDleaf.y_16S
+hsd_site.x_VPDleaf.y_16S
+hsd_climate.x_PhiPS2_16S
+hsd_site.x_PhiPS2_16S
+```
+
+Run correlation tests
+```{r}
+# pearson correlations 
+## gsw
+# with precip
+precip_gsw.y_cor <- cor.test(tree_clim$gsw.y, tree_clim$`decade_ave_prcp..mm.day.`)
+precip_gsw.y_cor_tab <- tidy(precip_gsw.y_cor)
+precip_gsw.y_cor_tab
+# with temp 
+tmax_gsw.y_cor <- cor.test(tree_clim$gsw.y, tree_clim$`decade_ave_tmax..deg.c.`)
+tmax_gsw.y_cor_tab <- tidy(tmax_gsw.y_cor)
+tmax_gsw.y_cor_tab
+# with elevation
+elev_gsw.y_cor <- cor.test(tree_clim$gsw.y, tree_clim$altitude)
+elev_gsw.y_cor_tab <- tidy(elev_gsw.y_cor)
+elev_gsw.y_cor_tab
+
+## VPDleaf
+# with precip
+precip_VPDleaf.y_cor <- cor.test(tree_clim$VPDleaf.y, tree_clim$`decade_ave_prcp..mm.day.`)
+precip_VPDleaf.y_cor_tab <- tidy(precip_VPDleaf.y_cor)
+precip_VPDleaf.y_cor_tab
+# with temp 
+tmax_VPDleaf.y_cor <- cor.test(tree_clim$VPDleaf.y, tree_clim$`decade_ave_tmax..deg.c.`)
+tmax_VPDleaf.y_cor_tab <- tidy(tmax_VPDleaf.y_cor)
+tmax_VPDleaf.y_cor_tab
+# with elevation
+elev_VPDleaf.y_cor <- cor.test(tree_clim$VPDleaf.y, tree_clim$altitude)
+elev_VPDleaf.y_cor_tab <- tidy(elev_VPDleaf.y_cor)
+elev_VPDleaf.y_cor_tab
+
+## PhiPS2
+# with precip
+precip_PhiPS2_cor <- cor.test(tree_clim$PhiPS2, tree_clim$`decade_ave_prcp..mm.day.`)
+precip_PhiPS2_cor_tab <- tidy(precip_PhiPS2_cor)
+precip_PhiPS2_cor_tab
+# with temp 
+tmax_PhiPS2_cor <- cor.test(tree_clim$PhiPS2, tree_clim$`decade_ave_tmax..deg.c.`)
+tmax_PhiPS2_cor_tab <- tidy(tmax_PhiPS2_cor)
+tmax_PhiPS2_cor_tab
+# with elevation
+elev_PhiPS2_cor <- cor.test(tree_clim$PhiPS2, tree_clim$altitude)
+elev_PhiPS2_cor_tab <- tidy(elev_PhiPS2_cor)
+elev_PhiPS2_cor_tab
+```
+
+# Correlation tests with elevation and precipitation
+
+```{r}
+elev_prec_gsw.y_cor <- cor.test(tree_clim$gsw.y, (tree_clim$altitude/tree_clim$decade_ave_tmax..deg.c.))
+elev_prec_gsw.y_cor_tab <- tidy(elev_prec_gsw.y_cor)
+elev_prec_gsw.y_cor_tab
+elev_prec_VPDleaf.y_cor <- cor.test(tree_clim$VPDleaf.y, (tree_clim$altitude/tree_clim$decade_ave_tmax..deg.c.))
+elev_prec_VPDleaf.y_cor_tab <- tidy(elev_prec_VPDleaf.y_cor)
+elev_prec_VPDleaf.y_cor_tab
+elev_prec_PhiPS2_cor <- cor.test(tree_clim$PhiPS2, (tree_clim$altitude/tree_clim$decade_ave_tmax..deg.c.))
+elev_prec_PhiPS2_cor_tab <- tidy(elev_prec_PhiPS2_cor)
+elev_prec_PhiPS2_cor_tab
+```
+
+
+# Table for correlations
+
+```{r}
+# bind all the correlation test dataframes
+cor_table <- rbind(precip_gsw.y_cor_tab,
+  tmax_gsw.y_cor_tab,
+  elev_gsw.y_cor_tab,
+  precip_VPDleaf.y_cor_tab,
+  tmax_VPDleaf.y_cor_tab,
+  elev_VPDleaf.y_cor_tab,
+  precip_PhiPS2_cor_tab,
+  tmax_PhiPS2_cor_tab,
+  elev_PhiPS2_cor_tab,
+  elev_prec_gsw.y_cor_tab,
+  elev_prec_VPDleaf.y_cor_tab,
+  elev_prec_PhiPS2_cor_tab)
+
+# add new column with test name
+cor_table$testname <- as.character(c(
+  "gsw by Precipitation",
+  "gsw by Temperature",
+  "gsw by Elevation",
+  "VPDleaf by Precipitation",
+  "VPDleaf by Temperature",
+  "VPDleaf by Elevation",
+  "PhiPS2 by Precipitation",
+  "PhiPS2 by Temperature",
+  "PhiPS2 by Elevation",
+  "gsw by Elevation/Precipitation",
+  "VPDleaf by Elevation/Precipitation",
+  "PhiPS2 by Elevation/Precipitation"))
+
+cor_table_filt <- cor_table %>%
+  dplyr::select(c(9,2,3))
+
+# Modify combined dataframe
+full_cor <- cor_table_filt %>%
+  rename(r = statistic) %>%
+  rename(`p-val` = p.value) %>%
+  mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
+  mutate(r = formatC(r, format = "f", digits = 3)) %>%
+  mutate(sig = ifelse(`p-val` < 0.001, "***",
+    ifelse(`p-val` < 0.01, "**",
+    ifelse(`p-val` < 0.05, "*",
+    ifelse(`p-val` < 0.1, ".", ""))))) %>%
+  rename(` ` = sig) %>%
+  rename(`  ` = testname)
+
+# Building the table
+ft <- flextable(full_cor) %>%
+  theme_booktabs() %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  separate_header() %>%
+  align(align = "center", part = "all", j = 2:4) %>%
+  merge_v(j=1) %>%
+  autofit()
+ft
+
+# save the table
+save_as_docx(ft, path = "results/tree_phys/pearson_corr_table.docx")
+save_as_image(ft, path = "results/tree_phys/pearson_corr_table.png")
+```
+
+# Table for ANOVAs
+
+
+
+
+
+
+# Line graphs
+
+```{r}
+## gsw
+# decade precipitation plot
+dec_prec_gsw_line <- ggplot(tree_clim, aes(x = `decade_ave_prcp..mm.day.`, y = gsw.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_gsw_line
+
+# decade max temp
+dec_tmax_gsw_line <- ggplot(tree_clim, aes(x = `decade_ave_tmax..deg.c.`, y = gsw.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Average Max Temperature (C)") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_tmax_gsw_line
+
+# elevation
+elev_gsw_line <- ggplot(tree_clim, aes(x = altitude, y = gsw.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+elev_gsw_line
+
+
+## VPDleaf
+# decade precipitation plot
+dec_prec_VPDleaf_line <- ggplot(tree_clim, aes(x = `decade_ave_prcp..mm.day.`, y = VPDleaf.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_VPDleaf_line
+
+# decade max temp
+dec_tmax_VPDleaf_line <- ggplot(tree_clim, aes(x = `decade_ave_tmax..deg.c.`, y = VPDleaf.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Average Max Temperature (C)") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_tmax_VPDleaf_line
+
+# elevation
+elev_VPDleaf_line <- ggplot(tree_clim, aes(x = altitude, y = VPDleaf.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+elev_VPDleaf_line
+
+
+## PhiPS2
+# decade precipitation plot
+dec_prec_PhiPS2_line <- ggplot(tree_clim, aes(x = `decade_ave_prcp..mm.day.`, y = PhiPS2)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Precipitation (mm)") + ylab("PhiPS2") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_PhiPS2_line
+
+# decade max temp
+dec_tmax_PhiPS2_line <- ggplot(tree_clim, aes(x = `decade_ave_tmax..deg.c.`, y = PhiPS2)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Average Max Temperature (C)") + ylab("PhiPS2") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_tmax_PhiPS2_line
+
+# elevation
+elev_PhiPS2_line <- ggplot(tree_clim, aes(x = altitude, y = PhiPS2)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)") + ylab("PhiPS2") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+elev_PhiPS2_line
+```
+
+# Trying Precip/Elev
+
+```{r}
+## gsw
+dec_prec_elev_gsw_line <- ggplot(tree_clim, aes(x = (altitude/`decade_ave_prcp..mm.day.`), y = gsw.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)/Precipitation (mm)") + ylab("gsw") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_elev_gsw_line
+
+## VPDleaf
+dec_prec_elev_VPDleaf_line <- ggplot(tree_clim, aes(x = (altitude/`decade_ave_prcp..mm.day.`), y = VPDleaf.y)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)/Precipitation (mm)") + ylab("VPDleaf") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_elev_VPDleaf_line
+
+## PhiPS2
+dec_prec_elev_PhiPS2_line <- ggplot(tree_clim, aes(x = (altitude/`decade_ave_prcp..mm.day.`), y = PhiPS2)) + 
+  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15, color = "black") + geom_point() + 
+  xlab("Elevation (m)/Precipitation (mm)") + ylab("PhiPS2") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+dec_prec_elev_PhiPS2_line
+```
+
+
+
+
+# Make a combined line plot
+
+```{r}
+# all together
+full_plot <- ggarrange(dec_prec_gsw_line, dec_tmax_gsw_line, elev_gsw_line,
+                       dec_prec_VPDleaf_line, dec_tmax_VPDleaf_line, elev_VPDleaf_line, 
+                       dec_prec_PhiPS2_line, dec_tmax_PhiPS2_line, elev_PhiPS2_line,
+                       nrow = 3, ncol = 3)
+full_plot
+# save full plot
+ggsave("results/tree_phys/full_clim_line.png", width = 16, height = 13)
+```
+
+
+# Combined with the elevation/precipitation plots
+
+```{r}
+# all together
+full_plot <- ggarrange(dec_prec_gsw_line, dec_tmax_gsw_line, elev_gsw_line, dec_prec_elev_gsw_line,
+                       dec_prec_VPDleaf_line, dec_tmax_VPDleaf_line, elev_VPDleaf_line, dec_prec_elev_VPDleaf_line,
+                       dec_prec_PhiPS2_line, dec_tmax_PhiPS2_line, elev_PhiPS2_line, dec_prec_elev_PhiPS2_line,
+                       nrow = 3, ncol = 4)
+full_plot
+# save full plot
+ggsave("results/tree_phys/full_clim_with_elev_precip_line.png", width = 20, height = 13)
 ```
 
 
