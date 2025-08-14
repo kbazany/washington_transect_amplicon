@@ -432,8 +432,79 @@ save_as_docx(ft, path = "results/tree_phys/pearson_corr_table.docx")
 save_as_image(ft, path = "results/tree_phys/pearson_corr_table.png")
 ```
 
-# Table for ANOVAs
+# Table for ANOVAs (one for site one for climate?)
 
+```{r}
+anova_table <- rbind(
+  gsw_site_anova,
+  VPDleaf_site_anova,
+  PhiPS2_site_anova,
+  gsw_clim_anova,
+  VPDleaf_clim_anova,
+  PhiPS2_clim_anova
+)
+
+anova_table$tree_metric <- as.character(c(
+  "gsw", "gsw",
+  "VPDleaf", "VPDleaf",
+  "PhiPS2", "PhiPS2",
+  "gsw", "gsw",
+  "VPDleaf", "VPDleaf",
+  "PhiPS2", "PhiPS2"
+))
+
+anova_table$variable <- as.character(c(
+  "site", "site",
+  "site", "site",
+  "site", "site",
+  "climate", "climate",
+  "climate", "climate",
+  "climate", "climate"
+))
+
+anova_table_reor <- anova_table %>%
+  dplyr::select(tree_metric, 1:5) %>%
+  mutate(term = recode(term,
+                       "climate.x" = "Climate",
+                       "site.x" = "Site"))
+
+# reformat
+# Format p-values and rename columns
+formatted_table <- anova_table_reor %>%
+    mutate(sig = ifelse(p.value < 0.001, "***",
+    ifelse(p.value < 0.01, "**",
+    ifelse(p.value < 0.05, "*",
+    ifelse(p.value < 0.1, ".", ""))))) %>%
+  mutate(p.value = formatC(p.value, format = "f", digits = 3)) %>% 
+  mutate(statistic = format(statistic, format = "f", digits = 4)) %>%
+  mutate(sumsq = format(sumsq, format = "f", digits = 2)) %>%
+  mutate(sig = ifelse(term == "Residuals", "", sig)) %>%
+  mutate(p.value = ifelse(term == "Residuals", "", p.value)) %>%
+  mutate(statistic = ifelse(term == "Residuals", "", statistic)) %>%
+  rename(`  ` = tree_metric,
+    `Sum Sq` = sumsq,
+    `F-statistic` = statistic,
+    `p-val` = p.value,
+    ` ` = sig)
+formatted_table
+
+# flextable
+flext <- flextable(formatted_table) %>%
+  add_footer_lines("p-val: < 0.001***, p-val < 0.01**, p-val < 0.05*, p-val < 0.1.") %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  hline(i = 6) %>%
+  hline(i = c(2, 4, 8, 10), j = c(2:7)) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all", j = 3:7) %>%
+  width(width = 0) %>%
+  autofit() 
+flext
+# save the table
+save_as_docx(flext, path = "results/tree_phys/anova_table.docx")
+save_as_image(flext, path = "results/tree_phys/anova_table.png")
+
+```
 
 
 
