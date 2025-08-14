@@ -1,7 +1,7 @@
 ---
-title: "cooccurence_network_2"
+title: "cooccurence_network_3"
 author: "kathryn_bazany"
-date: "2025-05-21"
+date: "2025-07-08"
 output: html_document
 ---
 
@@ -9,21 +9,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Install Packages
-
-SpiecEasi was extremely difficult to install. Need to download homebrew, gcc, gfortran, xcode and others in the terminal and specify paths to them by writing ~/.R/Makevars 
-
-install.packages(c(
-  "pulsar", "huge", "MASS", "igraph", "Matrix",
-  "phyloseq", "corpcor", "MatrixModels", "parallel"
-))
-install.packages(devtools)
 
 # load packages
 
 ```{r}
 library(phyloseq)
 library(tidyverse)
+library(ggpubr)
 library(pulsar)
 library(igraph)
 library(phyloseq)
@@ -37,24 +29,14 @@ library(Matrix)
 library(pulsar)
 library(VGAM)
 library(BiocManager)
-```
-
-# install SpeicEasi 
-
-You will likely need a github token for this step: 
-https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens
-
-devtools::install_github("zdk123/SpiecEasi")
-
-# load SpeicEasi
-
-```{r}
+library(ggraph)
 library(SpiecEasi)
 ```
 
+
 # Load files
 
-We will be making a total of 3 networks, one for the wet sites, one for the high sites, one for the dry sites. SpeicEasi wants standard singly rarefied tables.
+We will be making a total of 9 networks, wet, high, dry x bulk, rhizo, root. SpeicEasi wants standard singly rarefied tables.
 
 ```{r}
 tab_16S <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
@@ -75,8 +57,8 @@ dim(tab_ITS)
 common_cols <- intersect(names(tab_16S), names(tab_ITS))
 common_cols # 97 in common
 # Reordering to have the same column names and same order
-tab_16S <- tab_16S %>% select(all_of(common_cols))
-tab_ITS <- tab_ITS %>% select(all_of(common_cols))
+tab_16S <- tab_16S %>% dplyr::select(all_of(common_cols))
+tab_ITS <- tab_ITS %>% dplyr::select(all_of(common_cols))
 # check dimensions
 dim(tab_16S)
 dim(tab_ITS)
@@ -108,75 +90,1308 @@ ps_ITS_high <- subset_samples(ps_ITS, climate == "high")
 ps_ITS_dry <- subset_samples(ps_ITS, climate == "dry")
 ```
 
+# making some with all climate types but separated by niche to try to make networks with the climate types together
+
+```{r}
+ps_16S_wet_bulk <- subset_samples(ps_16S_wet, niche == "soil")
+ps_16S_wet_rhizo <- subset_samples(ps_16S_wet, niche == "rhizo")
+ps_16S_wet_root <- subset_samples(ps_16S_wet, niche == "roots")
+ps_16S_high_bulk <- subset_samples(ps_16S_high, niche == "soil")
+ps_16S_high_rhizo <- subset_samples(ps_16S_high, niche == "rhizo")
+ps_16S_high_root <- subset_samples(ps_16S_high, niche == "roots")
+ps_16S_dry_bulk <- subset_samples(ps_16S_dry, niche == "soil")
+ps_16S_dry_rhizo <- subset_samples(ps_16S_dry, niche == "rhizo")
+ps_16S_dry_root <- subset_samples(ps_16S_dry, niche == "roots")
+
+ps_ITS_wet_bulk <- subset_samples(ps_ITS_wet, niche == "soil")
+ps_ITS_wet_rhizo <- subset_samples(ps_ITS_wet, niche == "rhizo")
+ps_ITS_wet_root <- subset_samples(ps_ITS_wet, niche == "roots")
+ps_ITS_high_bulk <- subset_samples(ps_ITS_high, niche == "soil")
+ps_ITS_high_rhizo <- subset_samples(ps_ITS_high, niche == "rhizo")
+ps_ITS_high_root <- subset_samples(ps_ITS_high, niche == "roots")
+ps_ITS_dry_bulk <- subset_samples(ps_ITS_dry, niche == "soil")
+ps_ITS_dry_rhizo <- subset_samples(ps_ITS_dry, niche == "rhizo")
+ps_ITS_dry_root <- subset_samples(ps_ITS_dry, niche == "roots")
+```
+
 # simplify the data
 
 ```{r}
-ps_16S_wet = prune_taxa(taxa_sums(ps_16S_wet) > 1000, ps_16S_wet)
-ps_16S_high = prune_taxa(taxa_sums(ps_16S_high) > 1000, ps_16S_high)
-ps_16S_dry = prune_taxa(taxa_sums(ps_16S_dry) > 1000, ps_16S_dry)
-ps_ITS_wet = prune_taxa(taxa_sums(ps_ITS_wet) > 1000, ps_ITS_wet)
-ps_ITS_high = prune_taxa(taxa_sums(ps_ITS_high) > 1000, ps_ITS_high)
-ps_ITS_dry = prune_taxa(taxa_sums(ps_ITS_dry) > 1000, ps_ITS_dry)
+# cut any asvs that have fewer than 1000 reads (retain only common asvs within each climate class and niche combo)
+ps_16S_wet_bulk_filt = prune_taxa(taxa_sums(ps_16S_wet_bulk) > 100, ps_16S_wet_bulk)
+ps_16S_wet_rhizo_filt = prune_taxa(taxa_sums(ps_16S_wet_rhizo) > 100, ps_16S_wet_rhizo)
+ps_16S_wet_root_filt = prune_taxa(taxa_sums(ps_16S_wet_root) > 100, ps_16S_wet_root)
+ps_16S_high_bulk_filt = prune_taxa(taxa_sums(ps_16S_high_bulk) > 100, ps_16S_high_bulk)
+ps_16S_high_rhizo_filt = prune_taxa(taxa_sums(ps_16S_high_rhizo) > 100, ps_16S_high_rhizo)
+ps_16S_high_root_filt = prune_taxa(taxa_sums(ps_16S_high_root) > 100, ps_16S_high_root)
+ps_16S_dry_bulk_filt = prune_taxa(taxa_sums(ps_16S_dry_bulk) > 100, ps_16S_dry_bulk)
+ps_16S_dry_rhizo_filt = prune_taxa(taxa_sums(ps_16S_dry_rhizo) > 100, ps_16S_dry_rhizo)
+ps_16S_dry_root_filt = prune_taxa(taxa_sums(ps_16S_dry_root) > 100, ps_16S_dry_root)
+
+ps_ITS_wet_bulk_filt = prune_taxa(taxa_sums(ps_ITS_wet_bulk) > 100, ps_ITS_wet_bulk)
+ps_ITS_wet_rhizo_filt = prune_taxa(taxa_sums(ps_ITS_wet_rhizo) > 100, ps_ITS_wet_rhizo)
+ps_ITS_wet_root_filt = prune_taxa(taxa_sums(ps_ITS_wet_root) > 100, ps_ITS_wet_root)
+ps_ITS_high_bulk_filt = prune_taxa(taxa_sums(ps_ITS_high_bulk) > 100, ps_ITS_high_bulk)
+ps_ITS_high_rhizo_filt = prune_taxa(taxa_sums(ps_ITS_high_rhizo) > 100, ps_ITS_high_rhizo)
+ps_ITS_high_root_filt = prune_taxa(taxa_sums(ps_ITS_high_root) > 100, ps_ITS_high_root)
+ps_ITS_dry_bulk_filt = prune_taxa(taxa_sums(ps_ITS_dry_bulk) > 100, ps_ITS_dry_bulk)
+ps_ITS_dry_rhizo_filt = prune_taxa(taxa_sums(ps_ITS_dry_rhizo) > 100, ps_ITS_dry_rhizo)
+ps_ITS_dry_root_filt = prune_taxa(taxa_sums(ps_ITS_dry_root) > 100, ps_ITS_dry_root)
 ```
 
-# make the wet network 16S
+# run speiceasi correlations (long)
+
+# run spieceasi with glasso
+
+# Taking the ones that are done out of the code chunk because the process is very long
+
+se_wet_bulk <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+se_wet_rhizo <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+se_wet_root <- spiec.easi(list(ps_16S_wet_root_filt, ps_ITS_wet_root_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+se_high_bulk <- spiec.easi(list(ps_16S_high_bulk_filt, ps_ITS_high_bulk_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+se_high_rhizo <- spiec.easi(list(ps_16S_high_rhizo_filt, ps_ITS_high_rhizo_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+se_high_root <- spiec.easi(list(ps_16S_high_root_filt, ps_ITS_high_root_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+se_dry_bulk <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+se_dry_rhizo <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizo_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+se_dry_root <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
+save.image(file = "se_env.RData")
+
+# make network visualizations
+
+### Wet Bulk
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_bulk)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+## Remove unconnected vertices (Taking this out for now just to see how they look)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 0])
+
+## Check node metadata
+print(vertex_attr(igraph_obj))
+
+## Modifying Vertices
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) # good! A classic
+
+## Plotting with fr layout
+png("results/network_results/wet_bulk_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+
+
+# Trying to do the alignments first to see if we can actually add node metadata
 
 ```{r}
-se_16S_wet <- spiec.easi(ps_16S_wet, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_16S_wet <- adj2igraph(getRefit(se_16S_wet),  vertex.attr=list(name=taxa_names(ps_16S_wet)))
-nw_16S_wet <- plot_network(ig_16S_wet, ps_16S_wet, type='taxa', color="Phylum")
-nw_16S_wet
+### Wet Bulk
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_bulk)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+## node stats
+net_stat_wet_bulk <- data.frame(
+  total_nodes = (ntaxa(ps_16S_wet_bulk_filt) + ntaxa(ps_ITS_wet_bulk_filt)),
+  node_16S = ntaxa(ps_16S_wet_bulk_filt),
+  node_ITS = ntaxa(ps_ITS_wet_bulk_filt)
+)
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# save edges stats
+net_stat_wet_bulk <- net_stat_wet_bulk %>%
+  mutate(pos_edges = sum(edge_weights > 0),
+         neg_edges = sum(edge_weights < 0))
+# Set the edge weights to their absolute values for visualization
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## more network stats
+# run clustering algorithm
+cl <- cluster_fast_greedy(igraph_obj,
+                    merges = TRUE,
+                    modularity = TRUE,
+                    membership = TRUE,
+                    weights = E(igraph_obj)$weight)
+# add connectivity and modularity
+net_stat_wet_bulk <- net_stat_wet_bulk %>%
+  mutate(connectivity = mean(degree(igraph_obj)), # connectivity
+         modularity = modularity(cl)) # modularity
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/wet_bulk_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
-# make wet network ITS
 
 ```{r}
-se_ITS_wet <- spiec.easi(ps_ITS_wet, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_ITS_wet <- adj2igraph(getRefit(se_ITS_wet),  vertex.attr=list(name=taxa_names(ps_ITS_wet)))
-nw_ITS_wet <- plot_network(ig_ITS_wet, ps_ITS_wet, type='taxa', color="Phylum")
-nw_ITS_wet
+### Wet Rhizo
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/wet_rhizo_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
-# make the high network 16S
 
 ```{r}
-se_16S_high <- spiec.easi(ps_16S_high, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_16S_high <- adj2igraph(getRefit(se_16S_high),  vertex.attr=list(name=taxa_names(ps_16S_high)))
-nw_16S_high <- plot_network(ig_16S_high, ps_16S_high, type='taxa', color="Phylum")
-nw_16S_high
+### Wet Root
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_root)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_root_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/wet_root_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
-# make the high network ITS
 
 ```{r}
-se_ITS_high <- spiec.easi(ps_ITS_high, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_ITS_high <- adj2igraph(getRefit(se_ITS_high),  vertex.attr=list(name=taxa_names(ps_ITS_high)))
-nw_ITS_high <- plot_network(ig_ITS_high, ps_ITS_high, type='taxa', color="Phylum")
-nw_ITS_high
+### High Bulk
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk)))
+weighted.adj.mat <- se.cor*getRefit(se_high_bulk)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_high_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/high_bulk_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
-# make the dry network 16S
 
 ```{r}
-se_16S_dry <- spiec.easi(ps_16S_dry, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_16S_dry <- adj2igraph(getRefit(se_16S_dry),  vertex.attr=list(name=taxa_names(ps_16S_dry)))
-nw_16S_dry <- plot_network(ig_16S_dry, ps_16S_dry, type='taxa', color="Phylum")
-nw_16S_dry
+### High Rhizo
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo)))
+weighted.adj.mat <- se.cor*getRefit(se_high_rhizo)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_high_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/high_rhizo_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
-# make the dry network ITS
 
 ```{r}
-se_ITS_dry <- spiec.easi(ps_ITS_dry, method='mb', lambda.min.ratio=1e-2,
-                           nlambda=20, pulsar.params=list(rep.num=50))
-ig_ITS_dry <- adj2igraph(getRefit(se_ITS_dry),  vertex.attr=list(name=taxa_names(ps_ITS_dry)))
-nw_ITS_dry <- plot_network(ig_ITS_dry, ps_ITS_dry, type='taxa', color="Phylum")
-nw_ITS_dry
+### High Root
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root)))
+weighted.adj.mat <- se.cor*getRefit(se_high_root)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_root_filt)), rep("#EA9010", ntaxa(ps_ITS_high_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/high_root_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+```{r}
+### Dry Bulk (this one looks wierd, no connections)
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_bulk)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_bulk_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+```{r}
+### Dry Rhizo (this one looks wierd, no connections)
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_rhizo_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+```{r}
+### Dry Root (this one looks wierd, no connections)
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_root)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_root_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+### Calculating Network Metrics 
+
+```{r}
+# clustering
+cluster_fast_greedy(igraph_obj)
+# more details:
+cl <- cluster_fast_greedy(igraph_obj,
+                    merges = TRUE,
+                    modularity = TRUE,
+                    membership = TRUE,
+                    weights = E(igraph_obj)$weight)
+
+# modularity
+modularity(cl)
+modularity(igraph_obj,
+           membership = climate, # whatever factor I'm basing modularity on (climate or niche, has to be in the graph somehow...)
+           weights = NULL)
+```
+
+
+### Testing different run criteria to see if I get better networks (testing on dry for now because those are the hardest)
+
+# SpiecEasi Test
+Ok it's better and I didn't change anything except the bootstrap number... maybe something just went wrong with the last round?
+```{r}
+se_dry_root_test <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
+# save.image(file = "se_env.RData")
+```
+
+```{r}
+se_dry_bulk_test <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
+save.image(file = "se_env.RData")
+se_dry_rhizo_test <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizofilt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
+save.image(file = "se_env.RData")
+```
+
+Trying lower lambda because if lambda is too high it might be cutting out edges:
+... and it had the opposite affect and I am a disco ball once more...
+```{r}
+se_dry_root_test_2 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 10,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
+# save.image(file = "se_env.RData")
+```
+
+Trying higher lambda (similar to nlambda = 40)
+```{r}
+se_dry_root_test_3 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 60,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
+# save.image(file = "se_env.RData")
+```
+
+Trying a higher lambda.min.ratio and lower nlambda
+```{r}
+se_dry_root_test_4 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 0.05, pulsar.params = list(thresh = 0.05, rep.num = 5))
+save.image(file = "se_env.RData")
+se_dry_root_test_5 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 30,
+              lambda.min.ratio = 0.05, pulsar.params = list(thresh = 0.05, rep.num = 5))
+save.image(file = "se_env.RData")
+se_dry_root_test_6 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 30,
+              lambda.min.ratio = 0.5, pulsar.params = list(thresh = 0.05, rep.num = 5))
+save.image(file = "se_env.RData")
+```
+
+
+
+# Checking image
+```{r}
+### Dry Root (this one looks wierd, no connections)
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_test_5)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_root_test_5)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_root_net_test_6.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+# dry network rerun
+```{r}
+### Dry Bulk
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_test)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_test)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_bulk_net_test.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+
+### Dry Rhizo
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_test)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_test)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+
+
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+
+
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+
+## Plotting with fr layout
+png("results/network_results/dry_rhizo_net_test.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+# Trying everything with the same stats
+```{r}
+# wet networks
+se_wet_bulk_m2 <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+```
+
+
+```{r}
+# correlations
+se_wet_rhizo_m2 <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/wet_rhizo_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+se_wet_root_m2 <- spiec.easi(list(ps_16S_wet_root_filt, ps_ITS_wet_root_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_root_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_root_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/wet_root_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+```{r}
+# high networks
+# correlations
+se_high_bulk_m2 <- spiec.easi(list(ps_16S_high_bulk_filt, ps_ITS_high_bulk_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_high_bulk_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_high_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/high_bulk_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+se_high_rhizo_m2 <- spiec.easi(list(ps_16S_high_rhizo_filt, ps_ITS_high_rhizo_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_high_rhizo_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_high_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/high_rhizo_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+se_high_root_m2 <- spiec.easi(list(ps_16S_high_root_filt, ps_ITS_high_root_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_high_root_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_root_filt)), rep("#EA9010", ntaxa(ps_ITS_high_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/high_root_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+# dry networks
+se_dry_bulk_m2 <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/dry_bulk_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+se_dry_rhizo_m2 <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizo_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/dry_rhizo_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+# correlations
+se_dry_root_m2 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 35,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
+save.image(file = "se_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_root_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/dry_root_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+# visualizations
+```{r}
+### Wet Bulk m
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk_m2)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_bulk_m2)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/wet_bulk_net_m2.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
 ```
 
 
