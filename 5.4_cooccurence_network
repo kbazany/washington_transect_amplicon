@@ -1,14 +1,13 @@
 ---
-title: "cooccurence_network_3"
+title: "cooccurrence_network"
 author: "kathryn_bazany"
-date: "2025-07-08"
+date: "2025-08-18"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
-
 
 # load packages
 
@@ -31,6 +30,7 @@ library(VGAM)
 library(BiocManager)
 library(ggraph)
 library(SpiecEasi)
+library(flextable)
 ```
 
 
@@ -139,845 +139,29 @@ ps_ITS_dry_rhizo_filt = prune_taxa(taxa_sums(ps_ITS_dry_rhizo) > 100, ps_ITS_dry
 ps_ITS_dry_root_filt = prune_taxa(taxa_sums(ps_ITS_dry_root) > 100, ps_ITS_dry_root)
 ```
 
-# run speiceasi correlations (long)
 
-# run spieceasi with glasso
+# Networks and visualizations
+This process is very computationally intensive. It will likely crash so I'm saving the environment after every speiceasi run and saving every network produced as it runs.
 
-# Taking the ones that are done out of the code chunk because the process is very long
-
-se_wet_bulk <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-se_wet_rhizo <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-se_wet_root <- spiec.easi(list(ps_16S_wet_root_filt, ps_ITS_wet_root_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-se_high_bulk <- spiec.easi(list(ps_16S_high_bulk_filt, ps_ITS_high_bulk_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-se_high_rhizo <- spiec.easi(list(ps_16S_high_rhizo_filt, ps_ITS_high_rhizo_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-se_high_root <- spiec.easi(list(ps_16S_high_root_filt, ps_ITS_high_root_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-se_dry_bulk <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-se_dry_rhizo <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizo_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-se_dry_root <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100))
-save.image(file = "se_env.RData")
-
-# make network visualizations
-
-### Wet Bulk
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_bulk)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-## Remove unconnected vertices (Taking this out for now just to see how they look)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 0])
-
-## Check node metadata
-print(vertex_attr(igraph_obj))
-
-## Modifying Vertices
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) # good! A classic
-
-## Plotting with fr layout
-png("results/network_results/wet_bulk_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-
-
-
-# Trying to do the alignments first to see if we can actually add node metadata
-
+Starting with dry root network as dry are the most finicky and dry root will be the most sparse, and the wet bulk as this will be one of the most dense networks:
 ```{r}
-### Wet Bulk
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_bulk)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-## node stats
-net_stat_wet_bulk <- data.frame(
-  total_nodes = (ntaxa(ps_16S_wet_bulk_filt) + ntaxa(ps_ITS_wet_bulk_filt)),
-  node_16S = ntaxa(ps_16S_wet_bulk_filt),
-  node_ITS = ntaxa(ps_ITS_wet_bulk_filt)
-)
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# save edges stats
-net_stat_wet_bulk <- net_stat_wet_bulk %>%
-  mutate(pos_edges = sum(edge_weights > 0),
-         neg_edges = sum(edge_weights < 0))
-# Set the edge weights to their absolute values for visualization
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## more network stats
-# run clustering algorithm
-cl <- cluster_fast_greedy(igraph_obj,
-                    merges = TRUE,
-                    modularity = TRUE,
-                    membership = TRUE,
-                    weights = E(igraph_obj)$weight)
-# add connectivity and modularity
-net_stat_wet_bulk <- net_stat_wet_bulk %>%
-  mutate(connectivity = mean(degree(igraph_obj)), # connectivity
-         modularity = modularity(cl)) # modularity
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/wet_bulk_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### Wet Rhizo
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_rhizo_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_rhizo_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/wet_rhizo_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### Wet Root
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_root)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_root_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_root_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_root_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/wet_root_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### High Bulk
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk)))
-weighted.adj.mat <- se.cor*getRefit(se_high_bulk)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_high_bulk_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/high_bulk_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### High Rhizo
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo)))
-weighted.adj.mat <- se.cor*getRefit(se_high_rhizo)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_rhizo_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_high_rhizo_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/high_rhizo_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### High Root
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root)))
-weighted.adj.mat <- se.cor*getRefit(se_high_root)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_high_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_high_root_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_high_root_filt)), rep("#EA9010", ntaxa(ps_ITS_high_root_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/high_root_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### Dry Bulk (this one looks wierd, no connections)
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_bulk)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_bulk_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### Dry Rhizo (this one looks wierd, no connections)
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_rhizo_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-```{r}
-### Dry Root (this one looks wierd, no connections)
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_root)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_root_net.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-### Calculating Network Metrics 
-
-```{r}
-# clustering
-cluster_fast_greedy(igraph_obj)
-# more details:
-cl <- cluster_fast_greedy(igraph_obj,
-                    merges = TRUE,
-                    modularity = TRUE,
-                    membership = TRUE,
-                    weights = E(igraph_obj)$weight)
-
-# modularity
-modularity(cl)
-modularity(igraph_obj,
-           membership = climate, # whatever factor I'm basing modularity on (climate or niche, has to be in the graph somehow...)
-           weights = NULL)
-```
-
-
-### Testing different run criteria to see if I get better networks (testing on dry for now because those are the hardest)
-
-# SpiecEasi Test
-Ok it's better and I didn't change anything except the bootstrap number... maybe something just went wrong with the last round?
-```{r}
-se_dry_root_test <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
-# save.image(file = "se_env.RData")
-```
-
-```{r}
-se_dry_bulk_test <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
-save.image(file = "se_env.RData")
-se_dry_rhizo_test <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizofilt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
-save.image(file = "se_env.RData")
-```
-
-Trying lower lambda because if lambda is too high it might be cutting out edges:
-... and it had the opposite affect and I am a disco ball once more...
-```{r}
-se_dry_root_test_2 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 10,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
-# save.image(file = "se_env.RData")
-```
-
-Trying higher lambda (similar to nlambda = 40)
-```{r}
-se_dry_root_test_3 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 60,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 5))
-# save.image(file = "se_env.RData")
-```
-
-Trying a higher lambda.min.ratio and lower nlambda
-```{r}
-se_dry_root_test_4 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 40,
-              lambda.min.ratio = 0.05, pulsar.params = list(thresh = 0.05, rep.num = 5))
-save.image(file = "se_env.RData")
-se_dry_root_test_5 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 30,
-              lambda.min.ratio = 0.05, pulsar.params = list(thresh = 0.05, rep.num = 5))
-save.image(file = "se_env.RData")
-se_dry_root_test_6 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 30,
-              lambda.min.ratio = 0.5, pulsar.params = list(thresh = 0.05, rep.num = 5))
-save.image(file = "se_env.RData")
-```
-
-
-
-# Checking image
-```{r}
-### Dry Root (this one looks wierd, no connections)
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_test_5)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_root_test_5)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_root_net_test_6.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-# dry network rerun
-```{r}
-### Dry Bulk
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_test)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_test)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_bulk_net_test.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-
-
-### Dry Rhizo
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_test)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_test)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-
-
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-
-
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#AFBE8F", "#BA8F95")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-
-## Plotting with fr layout
-png("results/network_results/dry_rhizo_net_test.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-```
-
-
-# Trying everything with the same stats
-```{r}
-# wet networks
-se_wet_bulk_m2 <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
-```
-
-
-```{r}
-# correlations
-se_wet_rhizo_m2 <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
+## Dry Root
+se_dry_root_ht <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
 # visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_root_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
 # Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_rhizo_filt)))
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
 # Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_rhizo_filt)))
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
 # Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
 # igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
 # Check node metadata
@@ -998,7 +182,7 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/wet_rhizo_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_dry_root_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1009,22 +193,24 @@ plot(igraph_obj,
      edge.curved = 0.3,
      layout = fr)
 dev.off()
-# correlations
-se_wet_root_m2 <- spiec.easi(list(ps_16S_wet_root_filt, ps_ITS_wet_root_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
+
+## Wet Bulk
+se_wet_bulk_ht <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
 # visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_root_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_bulk_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
 # Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_root_filt)))
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
 # Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_root_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_root_filt)))
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
 # Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
 # igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
 # Check node metadata
@@ -1045,7 +231,7 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/wet_root_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_wet_bulk_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1056,20 +242,116 @@ plot(igraph_obj,
      edge.curved = 0.3,
      layout = fr)
 dev.off()
-```
 
 
-```{r}
-# high networks
-# correlations
-se_high_bulk_m2 <- spiec.easi(list(ps_16S_high_bulk_filt, ps_ITS_high_bulk_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
+## Dry bulk
+se_dry_bulk_ht <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
 # visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_high_bulk_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/se_dry_bulk_ht_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+## Dry rhizo
+se_dry_rhizo_ht <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizo_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/se_dry_rhizo_ht_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+## High bulk
+se_high_bulk_ht <- spiec.easi(list(ps_16S_high_bulk_filt, ps_ITS_high_bulk_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_bulk_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
@@ -1097,7 +379,7 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/high_bulk_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_high_bulk_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1108,15 +390,17 @@ plot(igraph_obj,
      edge.curved = 0.3,
      layout = fr)
 dev.off()
-# correlations
-se_high_rhizo_m2 <- spiec.easi(list(ps_16S_high_rhizo_filt, ps_ITS_high_rhizo_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
+
+## High rhizo
+se_high_rhizo_ht <- spiec.easi(list(ps_16S_high_rhizo_filt, ps_ITS_high_rhizo_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
 # visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_high_rhizo_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_rhizo_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
@@ -1144,7 +428,7 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/high_rhizo_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_high_rhizo_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1155,15 +439,17 @@ plot(igraph_obj,
      edge.curved = 0.3,
      layout = fr)
 dev.off()
-# correlations
-se_high_root_m2 <- spiec.easi(list(ps_16S_high_root_filt, ps_ITS_high_root_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
+
+## High root
+se_high_root_ht <- spiec.easi(list(ps_16S_high_root_filt, ps_ITS_high_root_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
 # visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_high_root_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_root_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
@@ -1191,149 +477,7 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/high_root_net_m2.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-# correlations
-# dry networks
-se_dry_bulk_m2 <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
-# visualization
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_m2)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_bulk_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_bulk_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-## Plotting with fr layout
-png("results/network_results/dry_bulk_net_m2.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-# correlations
-se_dry_rhizo_m2 <- spiec.easi(list(ps_16S_dry_rhizo_filt, ps_ITS_dry_rhizo_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
-# visualization
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_m2)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_rhizo_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-## Plotting with fr layout
-png("results/network_results/dry_rhizo_net_m2.png", width = 1000, height = 1000)
-plot(igraph_obj, 
-     vertex.color = vertex_color, 
-     vertex.frame.color = vertex_outline,
-     vertex.size = vertex_sizes, 
-     vertex.label = NA, 
-     edge.color = edge_colors_op,
-     edge.width = edge_widths,
-     edge.curved = 0.3,
-     layout = fr)
-dev.off()
-# correlations
-se_dry_root_m2 <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), method = 'glasso', nlambda = 35,
-              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 25))
-save.image(file = "se_env.RData")
-# visualization
-## Extracting igraph object from SpeicEasi
-# Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_dry_root_m2)
-# Convert the adjacency matrix to an igraph object
-igraph_obj <- adj2igraph(weighted.adj.mat)
-## Modifying Vertices
-# Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_dry_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_dry_root_filt)))
-# Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_dry_root_filt)), rep("#EA9010", ntaxa(ps_ITS_dry_root_filt)))
-# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
-# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
-# Check node metadata
-print(vertex_attr(igraph_obj))
-# Calculate vertex sizes based on degree
-vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
-## Modifying Edges
-# Extract edge weights
-edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
-# Create edge color vector based on weights
-edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
-# Convert to RGBA with adjusted opacity
-edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
-# Changing line thickness based on edge weight:
-edge_widths <- abs(edge_weights) * 80
-# Set the edge weights to their absolute values
-E(igraph_obj)$weight <- abs(edge_weights)
-## Modifying the layout
-fr <- layout_with_fr(igraph_obj) 
-## Plotting with fr layout
-png("results/network_results/dry_root_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_high_root_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1347,20 +491,25 @@ dev.off()
 ```
 
 
-# visualizations
+# Finishing off with the wet networks
 ```{r}
-### Wet Bulk m
+## wet rhizo
+se_wet_rhizo_ht <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
+# visualization
 ## Extracting igraph object from SpeicEasi
 # Extract the refitted network (the adjacency matrix)
-se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk_m2)))
-weighted.adj.mat <- se.cor*getRefit(se_wet_bulk_m2)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo_ht)
 # Convert the adjacency matrix to an igraph object
 igraph_obj <- adj2igraph(weighted.adj.mat)
 ## Modifying Vertices
 # Set vertex colors
-vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_bulk_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_bulk_filt)))
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_rhizo_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_rhizo_filt)))
 # Set vertex outline colors
-vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_bulk_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_bulk_filt)))
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_rhizo_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_rhizo_filt)))
 # Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
 # igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
 # Check node metadata
@@ -1381,7 +530,57 @@ E(igraph_obj)$weight <- abs(edge_weights)
 ## Modifying the layout
 fr <- layout_with_fr(igraph_obj) 
 ## Plotting with fr layout
-png("results/network_results/wet_bulk_net_m2.png", width = 1000, height = 1000)
+png("results/network_results/se_wet_rhizo_ht_net.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color, 
+     vertex.frame.color = vertex_outline,
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = edge_colors_op,
+     edge.width = edge_widths,
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+
+## wet root
+se_wet_root_ht <- spiec.easi(list(ps_16S_wet_root_filt, ps_ITS_wet_root_filt), 
+                                           method = 'glasso', nlambda = 40,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
+save.image(file = "se_ht_env.RData")
+# visualization
+## Extracting igraph object from SpeicEasi
+# Extract the refitted network (the adjacency matrix)
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_root_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+## Modifying Vertices
+# Set vertex colors
+vertex_color <- c(rep("#ADC9D7", ntaxa(ps_16S_wet_root_filt)), rep("#F7CA8D", ntaxa(ps_ITS_wet_root_filt)))
+# Set vertex outline colors
+vertex_outline <- c(rep("#385F71", ntaxa(ps_16S_wet_root_filt)), rep("#EA9010", ntaxa(ps_ITS_wet_root_filt)))
+# Remove unconnected vertices (taking this out for now because it's cutting all the fungi)
+# igraph_obj <- igraph::induced_subgraph(igraph_obj, V(igraph_obj)[abs(degree(igraph_obj)) > 1])
+# Check node metadata
+print(vertex_attr(igraph_obj))
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/10) + 2  # Adjust the multiplier for visibility
+## Modifying Edges
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight  # Assumes that edge weights are stored by default
+# Create edge color vector based on weights
+edge_colors <- ifelse(edge_weights > 0, "#879B59", "#985D65")
+# Convert to RGBA with adjusted opacity
+edge_colors_op <- rgb(t(col2rgb(edge_colors)), alpha = 120, maxColorValue = 255)  # 128 / 255 = 0.5 opacity
+# Changing line thickness based on edge weight:
+edge_widths <- abs(edge_weights) * 80
+# Set the edge weights to their absolute values
+E(igraph_obj)$weight <- abs(edge_weights)
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results/se_wet_root_ht_net.png", width = 1000, height = 1000)
 plot(igraph_obj, 
      vertex.color = vertex_color, 
      vertex.frame.color = vertex_outline,
@@ -1394,4 +593,1527 @@ plot(igraph_obj,
 dev.off()
 ```
 
+
+
+# Network metrics
+
+```{r}
+## wet bulk
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_bulk_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_wet_bulk_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_wet_bulk_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_wet_bulk_filt@tax_table, ps_ITS_wet_bulk_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_wet_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D")) +
+  xlim(0, 30)
+close_plot_wet_bulk
+ggsave("results/network_results/close_plot_wet_bulk.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_wet_bulk.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "wet_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# save a full summary
+network_summary_full <- network_summary
+
+
+## wet rhizo
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_rhizo_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_wet_rhizo_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_wet_rhizo_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_wet_rhizo_filt@tax_table, ps_ITS_wet_rhizo_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_wet_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D")) +
+  xlim(0, 30)
+close_plot_wet_rhizo
+ggsave("results/network_results/close_plot_wet_rhizo.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_wet_rhizo.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "wet_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## wet root
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_wet_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_wet_root_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_wet_root_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_wet_root_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_wet_root_filt@tax_table, ps_ITS_wet_root_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_wet_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D")) 
+close_plot_wet_root
+ggsave("results/network_results/close_plot_wet_root.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_wet_root.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "wet_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## high bulk
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_bulk_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_high_bulk_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_high_bulk_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_high_bulk_filt@tax_table, ps_ITS_high_bulk_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_high_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+close_plot_high_bulk
+ggsave("results/network_results/close_plot_high_bulk.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_high_bulk.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "high_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## high rhizo
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_rhizo_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_high_rhizo_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_high_rhizo_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_high_rhizo_filt@tax_table, ps_ITS_high_rhizo_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_high_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D")) 
+close_plot_high_rhizo
+ggsave("results/network_results/close_plot_high_rhizo.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_high_rhizo.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "high_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## high root
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_high_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_high_root_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_high_root_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_high_root_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_high_root_filt@tax_table, ps_ITS_high_root_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_high_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D")) 
+close_plot_high_root
+ggsave("results/network_results/close_plot_high_root.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_high_root.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "high_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## dry bulk
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_bulk_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_bulk_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_dry_bulk_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_dry_bulk_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_dry_bulk_filt@tax_table, ps_ITS_dry_bulk_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_dry_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D")) +
+  xlim(0, 40)
+close_plot_dry_bulk
+ggsave("results/network_results/close_plot_dry_bulk.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_dry_bulk.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "dry_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## dry rhizo
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_rhizo_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_rhizo_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_dry_rhizo_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_dry_rhizo_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_dry_rhizo_filt@tax_table, ps_ITS_dry_rhizo_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_dry_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D")) +
+  xlim(0, 40)
+close_plot_dry_rhizo
+ggsave("results/network_results/close_plot_dry_rhizo.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_dry_rhizo.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "dry_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## dry root
+# Load igraph object
+se.cor  <- cov2cor(as.matrix(getOptCov(se_dry_root_ht)))
+weighted.adj.mat <- se.cor*getRefit(se_dry_root_ht)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- ntaxa(ps_16S_dry_root_filt)
+num_fungal_nodes <- ntaxa(ps_ITS_dry_root_filt)
+total_nodes <- vcount(igraph_obj) # make sure num_bac + num_fun = total!
+# Extract Edge Information
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights)
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table 
+taxa <- rbind(ps_16S_dry_root_filt@tax_table, ps_ITS_dry_root_filt@tax_table)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# hub plot
+close_plot_dry_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D")) +
+  xlim(0, 40)
+close_plot_dry_root
+ggsave("results/network_results/close_plot_dry_root.png", width = 4.5, height = 3.3)
+# betweenness vs degree
+between_plot <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
+between_plot
+ggsave("results/network_results/between_plot_dry_root.png", width = 4.5, height = 3.3)
+## format table
+network_summary$Network <- "dry_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+```
+
+# put together degree and closeness charts
+
+```{r}
+full_close_plot <- ggarrange(close_plot_wet_bulk, close_plot_wet_rhizo, close_plot_wet_root,
+                                 close_plot_high_bulk, close_plot_high_rhizo, close_plot_high_root,
+                                 close_plot_dry_bulk, close_plot_dry_rhizo, close_plot_dry_root,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
+ggsave("results/network_results/degree_closeness_plot.png", width = 8, height = 7)
+```
+
+# Stacked bar charts for nodes and edges
+
+```{r}
+## wet bulk
+# select network
+bulk_wet_sub <- network_summary_full %>%
+  filter(Network == "wet_bulk")
+# reformat
+bulk_wet_long <- bulk_wet_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+bulk_wet_long$Count <- as.numeric(bulk_wet_long$Count)
+# reorder variables
+bulk_wet_long$Category <- factor(bulk_wet_long$Category, levels = c("Nodes", "Edges"))
+bulk_wet_long$Type <- factor(bulk_wet_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+bulk_wet_stack <- ggplot(bulk_wet_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+bulk_wet_stack
+
+## wet rhizo
+# select network
+rhizo_wet_sub <- network_summary_full %>%
+  filter(Network == "wet_rhizo")
+# reformat
+rhizo_wet_long <- rhizo_wet_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+rhizo_wet_long$Count <- as.numeric(rhizo_wet_long$Count)
+# reorder variables
+rhizo_wet_long$Category <- factor(rhizo_wet_long$Category, levels = c("Nodes", "Edges"))
+rhizo_wet_long$Type <- factor(rhizo_wet_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+rhizo_wet_stack <- ggplot(rhizo_wet_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+rhizo_wet_stack
+
+## wet root
+# select network
+root_wet_sub <- network_summary_full %>%
+  filter(Network == "wet_root")
+# reformat
+root_wet_long <- root_wet_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+root_wet_long$Count <- as.numeric(root_wet_long$Count)
+# reorder variables
+root_wet_long$Category <- factor(root_wet_long$Category, levels = c("Nodes", "Edges"))
+root_wet_long$Type <- factor(root_wet_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+root_wet_stack <- ggplot(root_wet_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+root_wet_stack
+
+## high bulk
+# select network
+bulk_high_sub <- network_summary_full %>%
+  filter(Network == "high_bulk")
+# reformat
+bulk_high_long <- bulk_high_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+bulk_high_long$Count <- as.numeric(bulk_high_long$Count)
+# reorder variables
+bulk_high_long$Category <- factor(bulk_high_long$Category, levels = c("Nodes", "Edges"))
+bulk_high_long$Type <- factor(bulk_high_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+bulk_high_stack <- ggplot(bulk_high_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+bulk_high_stack
+
+## high rhizo
+# select network
+rhizo_high_sub <- network_summary_full %>%
+  filter(Network == "high_rhizo")
+# reformat
+rhizo_high_long <- rhizo_high_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+rhizo_high_long$Count <- as.numeric(rhizo_high_long$Count)
+# reorder variables
+rhizo_high_long$Category <- factor(rhizo_high_long$Category, levels = c("Nodes", "Edges"))
+rhizo_high_long$Type <- factor(rhizo_high_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+rhizo_high_stack <- ggplot(rhizo_high_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+rhizo_high_stack
+
+## high root
+# select network
+root_high_sub <- network_summary_full %>%
+  filter(Network == "high_root")
+# reformat
+root_high_long <- root_high_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+root_high_long$Count <- as.numeric(root_high_long$Count)
+# reorder variables
+root_high_long$Category <- factor(root_high_long$Category, levels = c("Nodes", "Edges"))
+root_high_long$Type <- factor(root_high_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+root_high_stack <- ggplot(root_high_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+root_high_stack
+
+## dry bulk
+# select network
+bulk_dry_sub <- network_summary_full %>%
+  filter(Network == "dry_bulk")
+# reformat
+bulk_dry_long <- bulk_dry_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+bulk_dry_long$Count <- as.numeric(bulk_dry_long$Count)
+# reorder variables
+bulk_dry_long$Category <- factor(bulk_dry_long$Category, levels = c("Nodes", "Edges"))
+bulk_dry_long$Type <- factor(bulk_dry_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+bulk_dry_stack <- ggplot(bulk_dry_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+bulk_dry_stack
+
+## dry rhizo
+# select network
+rhizo_dry_sub <- network_summary_full %>%
+  filter(Network == "dry_rhizo")
+# reformat
+rhizo_dry_long <- rhizo_dry_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+rhizo_dry_long$Count <- as.numeric(rhizo_dry_long$Count)
+# reorder variables
+rhizo_dry_long$Category <- factor(rhizo_dry_long$Category, levels = c("Nodes", "Edges"))
+rhizo_dry_long$Type <- factor(rhizo_dry_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+rhizo_dry_stack <- ggplot(rhizo_dry_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+rhizo_dry_stack
+
+## dry root
+# select network
+root_dry_sub <- network_summary_full %>%
+  filter(Network == "dry_root")
+# reformat
+root_dry_long <- root_dry_sub %>%
+  pivot_longer(cols = c(Bacterial_Nodes, Fungal_Nodes, Positive_Edges, Negative_Edges),
+               names_to = "Type", values_to = "Count") %>%
+  mutate(Category = case_when(
+    Type %in% c("Bacterial_Nodes", "Fungal_Nodes") ~ "Nodes",
+    Type %in% c("Positive_Edges", "Negative_Edges") ~ "Edges")) %>%
+  mutate(across(everything(), ~ str_replace_all(., "(_Nodes|_Edges)", "")))
+root_dry_long$Count <- as.numeric(root_dry_long$Count)
+# reorder variables
+root_dry_long$Category <- factor(root_dry_long$Category, levels = c("Nodes", "Edges"))
+root_dry_long$Type <- factor(root_dry_long$Type, levels = c("Bacterial", "Fungal", "Positive", "Negative"))
+# make bar chart
+root_dry_stack <- ggplot(root_dry_long, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D","#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines"))
+root_dry_stack
+
+```
+
+# put together node and edge charts
+
+```{r}
+full_node_edge_plot <- ggarrange(bulk_wet_stack, rhizo_wet_stack, root_wet_stack,
+          bulk_high_stack, rhizo_high_stack, root_high_stack,
+          bulk_dry_stack, rhizo_dry_stack, root_dry_stack,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
+ggsave("results/network_results/full_node_edge_plot.png", width = 6, height = 6)
+```
+
+
+Since the numbers of nodes and edges are so disparate, make different charts for nodes and edges?
+
+# Nodes stacked
+
+```{r}
+# wet bulk
+# split into node and edge dataframe 
+bulk_wet_long_node <- bulk_wet_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+bulk_wet_stack_node <- ggplot(bulk_wet_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+bulk_wet_stack_node
+
+# wet rhizo
+# split into node and edge dataframe 
+rhizo_wet_long_node <- rhizo_wet_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+rhizo_wet_stack_node <- ggplot(rhizo_wet_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+rhizo_wet_stack_node
+
+# wet root
+# split into node and edge dataframe 
+root_wet_long_node <- root_wet_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+root_wet_stack_node <- ggplot(root_wet_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+root_wet_stack_node
+
+# high bulk
+# split into node and edge dataframe 
+bulk_high_long_node <- bulk_high_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+bulk_high_stack_node <- ggplot(bulk_high_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+bulk_high_stack_node
+
+# high rhizo
+# split into node and edge dataframe 
+rhizo_high_long_node <- rhizo_high_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+rhizo_high_stack_node <- ggplot(rhizo_high_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+rhizo_high_stack_node
+
+# high root
+# split into node and edge dataframe 
+root_high_long_node <- root_high_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+root_high_stack_node <- ggplot(root_high_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+root_high_stack_node
+
+# dry bulk
+# split into node and edge dataframe 
+bulk_dry_long_node <- bulk_dry_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+bulk_dry_stack_node <- ggplot(bulk_dry_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+bulk_dry_stack_node
+
+# dry rhizo
+# split into node and edge dataframe 
+rhizo_dry_long_node <- rhizo_dry_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+rhizo_dry_stack_node <- ggplot(rhizo_dry_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+rhizo_dry_stack_node
+
+# dry root
+# split into node and edge dataframe 
+root_dry_long_node <- root_dry_long %>%
+  filter(Category == "Nodes")
+# make bar chart
+root_dry_stack_node <- ggplot(root_dry_long_node, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#ADC9D7","#F7CA8D")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 1000)
+root_dry_stack_node
+```
+
+# Nodes together
+
+```{r}
+full_node_plot <- ggarrange(bulk_wet_stack_node, rhizo_wet_stack_node, root_wet_stack_node,
+          bulk_high_stack_node, rhizo_high_stack_node, root_high_stack_node,
+          bulk_dry_stack_node, rhizo_dry_stack_node, root_dry_stack_node,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "bottom")
+ggsave("results/network_results/full_node_plot.png", width = 3.6, height = 6)
+```
+
+
+# Edge plots
+
+```{r}
+# wet bulk
+# split into edge and edge dataframe 
+bulk_wet_long_edge <- bulk_wet_long %>%
+  filter(Category == "Edges")
+# make bar chart
+bulk_wet_stack_edge <- ggplot(bulk_wet_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+bulk_wet_stack_edge
+
+# wet rhizo
+# split into edge and edge dataframe 
+rhizo_wet_long_edge <- rhizo_wet_long %>%
+  filter(Category == "Edges")
+# make bar chart
+rhizo_wet_stack_edge <- ggplot(rhizo_wet_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+rhizo_wet_stack_edge
+
+# wet root
+# split into edge and edge dataframe 
+root_wet_long_edge <- root_wet_long %>%
+  filter(Category == "Edges")
+# make bar chart
+root_wet_stack_edge <- ggplot(root_wet_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+root_wet_stack_edge
+
+# high bulk
+# split into edge and edge dataframe 
+bulk_high_long_edge <- bulk_high_long %>%
+  filter(Category == "Edges")
+# make bar chart
+bulk_high_stack_edge <- ggplot(bulk_high_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+bulk_high_stack_edge
+
+# high rhizo
+# split into edge and edge dataframe 
+rhizo_high_long_edge <- rhizo_high_long %>%
+  filter(Category == "Edges")
+# make bar chart
+rhizo_high_stack_edge <- ggplot(rhizo_high_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+rhizo_high_stack_edge
+
+# high root
+# split into edge and edge dataframe 
+root_high_long_edge <- root_high_long %>%
+  filter(Category == "Edges")
+# make bar chart
+root_high_stack_edge <- ggplot(root_high_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+root_high_stack_edge
+
+# dry bulk
+# split into edge and edge dataframe 
+bulk_dry_long_edge <- bulk_dry_long %>%
+  filter(Category == "Edges")
+# make bar chart
+bulk_dry_stack_edge <- ggplot(bulk_dry_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+bulk_dry_stack_edge
+
+# dry rhizo
+# split into edge and edge dataframe 
+rhizo_dry_long_edge <- rhizo_dry_long %>%
+  filter(Category == "Edges")
+# make bar chart
+rhizo_dry_stack_edge <- ggplot(rhizo_dry_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+rhizo_dry_stack_edge
+
+# dry root
+# split into edge and edge dataframe 
+root_dry_long_edge <- root_dry_long %>%
+  filter(Category == "Edges")
+# make bar chart
+root_dry_stack_edge <- ggplot(root_dry_long_edge, aes(x = Category, y = Count, fill = Type)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = c("#879B59","#985D65")) +
+  labs(y = "", x = "") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.title = element_blank(),
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.5, "lines")) +
+  ylim(0, 13500)
+root_dry_stack_edge
+
+```
+
+
+# Edges together
+
+```{r}
+full_edge_plot <- ggarrange(bulk_wet_stack_edge, rhizo_wet_stack_edge, root_wet_stack_edge,
+          bulk_high_stack_edge, rhizo_high_stack_edge, root_high_stack_edge,
+          bulk_dry_stack_edge, rhizo_dry_stack_edge, root_dry_stack_edge,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "bottom")
+ggsave("results/network_results/full_edge_plot.png", width = 3.6, height = 6)
+```
+
+
+# Formatted table of basic network stats
+
+```{r}
+network_summary_full_tab <- network_summary_full %>%
+  separate(col = Network, into = c("Climate", "Niche"), sep = "_") %>%
+  mutate(Climate = recode(Climate, 
+                          "wet" = "Wet", "high" = "High", "dry" = "Dry")) %>%
+  mutate(Niche = recode(Niche,
+                          "bulk" = "Bulk Soil", "rhizo" = "Rhizosphere Soil", "root" = "Root Endosphere")) %>%
+  rename("Total Nodes" = "Total_Nodes",
+         "Bacterial Nodes" = "Bacterial_Nodes",
+         "Fungal Nodes" = "Fungal_Nodes", 
+         "Total Edges" = "Total_Edges", 
+         "Positive Edges" = "Positive_Edges", 
+         "Negative Edges" = "Negative_Edges")
+
+# flextable
+flext <- flextable(network_summary_full_tab) %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  vline(j = c(2,5,8)) %>%
+  hline(i = c(3,6), j = c(2:11)) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all", j = 3:11) %>%
+  width(width = 0) %>%
+  autofit() 
+flext
+# save the table
+save_as_docx(flext, path = "results/network_results/network_stat_table.docx")
+save_as_image(flext, path = "results/network_results/network_stat_table.png")
+```
 
