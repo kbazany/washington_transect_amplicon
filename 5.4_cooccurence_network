@@ -2126,3 +2126,31 @@ save_as_docx(flext, path = "results/network_results/network_stat_table.docx")
 save_as_image(flext, path = "results/network_results/network_stat_table.png")
 ```
 
+
+# Table with percents
+
+```{r}
+network_percents <- network_summary_full_tab %>%
+  mutate("% Bacterial Nodes" = ((`Bacterial Nodes`/`Total Nodes`)*100)) %>%
+  mutate("% Fungal Nodes" = ((`Fungal Nodes`/`Total Nodes`)*100)) %>%
+  mutate("% Positive Edges" = ((`Positive Edges`/`Total Edges`)*100)) %>%
+  mutate("% Negative Edges" = ((`Negative Edges`/`Total Edges`)*100)) %>%
+  dplyr::select(c(1:2,12:15))
+network_percents
+
+# flextable
+flext <- flextable(network_percents) %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  vline(j = c(2,4)) %>%
+  hline(i = c(3,6), j = c(2:6)) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all", j = 3:6) %>%
+  width(width = 0) %>%
+  autofit() 
+flext
+# save the table
+save_as_docx(flext, path = "results/network_results/network_percent_table.docx")
+save_as_image(flext, path = "results/network_results/network_percent_table.png")
+```
+
