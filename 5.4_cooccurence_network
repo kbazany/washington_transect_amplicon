@@ -141,11 +141,11 @@ ps_ITS_dry_root_filt = prune_taxa(taxa_sums(ps_ITS_dry_root) > 100, ps_ITS_dry_r
 
 
 # Networks and visualizations
-This process is very computationally intensive. It will likely crash so I'm saving the environment after every speiceasi run and saving every network produced as it runs.
+This process is very computationally intensive. It's likely crash so save the environment after every speiceasi run and save every network produced as it runs.
 
-Starting with dry root network as dry are the most finicky and dry root will be the most sparse, and the wet bulk as this will be one of the most dense networks:
 ```{r}
 ## Dry Root
+# this is the first test because it is expected to be the most sparse network
 se_dry_root_ht <- spiec.easi(list(ps_16S_dry_root_filt, ps_ITS_dry_root_filt), 
                                            method = 'glasso', nlambda = 40,
               lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
@@ -195,6 +195,7 @@ plot(igraph_obj,
 dev.off()
 
 ## Wet Bulk
+# this is the second test network because it is expected to be the most dense:
 se_wet_bulk_ht <- spiec.easi(list(ps_16S_wet_bulk_filt, ps_ITS_wet_bulk_filt), 
                                            method = 'glasso', nlambda = 40,
               lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
@@ -245,6 +246,7 @@ dev.off()
 
 
 ## Dry bulk
+# running the rest:
 se_dry_bulk_ht <- spiec.easi(list(ps_16S_dry_bulk_filt, ps_ITS_dry_bulk_filt), 
                                            method = 'glasso', nlambda = 40,
               lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.1, rep.num = 100, ncores = 12))
@@ -488,11 +490,7 @@ plot(igraph_obj,
      edge.curved = 0.3,
      layout = fr)
 dev.off()
-```
 
-
-# Finishing off with the wet networks
-```{r}
 ## wet rhizo
 se_wet_rhizo_ht <- spiec.easi(list(ps_16S_wet_rhizo_filt, ps_ITS_wet_rhizo_filt), 
                                            method = 'glasso', nlambda = 40,
@@ -595,7 +593,7 @@ dev.off()
 
 
 
-# Network metrics
+# Network metrics (using primarily iGraph to calculate)
 
 ```{r}
 ## wet bulk
@@ -672,7 +670,7 @@ close_plot_wet_bulk <- taxa_nodes %>%
 close_plot_wet_bulk
 ggsave("results/network_results/close_plot_wet_bulk.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_wet_bulk <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -682,7 +680,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_wet_bulk
 ggsave("results/network_results/between_plot_wet_bulk.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "wet_bulk"
@@ -766,7 +764,7 @@ close_plot_wet_rhizo <- taxa_nodes %>%
 close_plot_wet_rhizo
 ggsave("results/network_results/close_plot_wet_rhizo.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_wet_rhizo <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -776,7 +774,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_wet_rhizo
 ggsave("results/network_results/between_plot_wet_rhizo.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "wet_rhizo"
@@ -859,7 +857,7 @@ close_plot_wet_root <- taxa_nodes %>%
 close_plot_wet_root
 ggsave("results/network_results/close_plot_wet_root.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_wet_root <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -869,7 +867,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_wet_root
 ggsave("results/network_results/between_plot_wet_root.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "wet_root"
@@ -952,7 +950,7 @@ close_plot_high_bulk <- taxa_nodes %>%
 close_plot_high_bulk
 ggsave("results/network_results/close_plot_high_bulk.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_high_bulk <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -962,7 +960,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_high_bulk
 ggsave("results/network_results/between_plot_high_bulk.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "high_bulk"
@@ -1045,7 +1043,7 @@ close_plot_high_rhizo <- taxa_nodes %>%
 close_plot_high_rhizo
 ggsave("results/network_results/close_plot_high_rhizo.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_high_rhizo <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -1055,7 +1053,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_high_rhizo
 ggsave("results/network_results/between_plot_high_rhizo.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "high_rhizo"
@@ -1138,7 +1136,7 @@ close_plot_high_root <- taxa_nodes %>%
 close_plot_high_root
 ggsave("results/network_results/close_plot_high_root.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_high_root <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -1148,7 +1146,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_high_root
 ggsave("results/network_results/between_plot_high_root.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "high_root"
@@ -1232,7 +1230,7 @@ close_plot_dry_bulk <- taxa_nodes %>%
 close_plot_dry_bulk
 ggsave("results/network_results/close_plot_dry_bulk.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_dry_bulk <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -1242,7 +1240,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_dry_bulk
 ggsave("results/network_results/between_plot_dry_bulk.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "dry_bulk"
@@ -1326,7 +1324,7 @@ close_plot_dry_rhizo <- taxa_nodes %>%
 close_plot_dry_rhizo
 ggsave("results/network_results/close_plot_dry_rhizo.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_dry_rhizo <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -1336,7 +1334,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#DFC5FE","#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_dry_rhizo
 ggsave("results/network_results/between_plot_dry_rhizo.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "dry_rhizo"
@@ -1420,7 +1418,7 @@ close_plot_dry_root <- taxa_nodes %>%
 close_plot_dry_root
 ggsave("results/network_results/close_plot_dry_root.png", width = 4.5, height = 3.3)
 # betweenness vs degree
-between_plot <- taxa_nodes %>%
+between_plot_dry_root <- taxa_nodes %>%
   ggplot(mapping = aes(Betweenness, Degree, color = Kingdom)) + 
   geom_point(size = 1.2) + 
   labs(x = "Betweenness", y = "Degree") +
@@ -1430,7 +1428,7 @@ between_plot <- taxa_nodes %>%
         legend.position = "right", legend.text = element_text(size = 10), 
         legend.key.size = unit(0.3, "lines")) +
   scale_color_manual("Kingdom", values=c("#ADC9D7","#F7CA8D"))
-between_plot
+between_plot_dry_root
 ggsave("results/network_results/between_plot_dry_root.png", width = 4.5, height = 3.3)
 ## format table
 network_summary$Network <- "dry_root"
@@ -1449,6 +1447,17 @@ full_close_plot <- ggarrange(close_plot_wet_bulk, close_plot_wet_rhizo, close_pl
           nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
 ggsave("results/network_results/degree_closeness_plot.png", width = 8, height = 7)
 ```
+
+# put together degree and betweenness charts
+
+```{r}
+full_between_plot <- ggarrange(between_plot_wet_bulk, between_plot_wet_rhizo, between_plot_wet_root,
+                                 between_plot_high_bulk, between_plot_high_rhizo, between_plot_high_root,
+                                 between_plot_dry_bulk, between_plot_dry_rhizo, between_plot_dry_root,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
+ggsave("results/network_results/degree_betweenness_plot.png", width = 8, height = 7)
+```
+
 
 # Stacked bar charts for nodes and edges
 
