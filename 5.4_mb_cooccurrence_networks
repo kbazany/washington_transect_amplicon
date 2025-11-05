@@ -1,0 +1,2394 @@
+---
+title: "network_mb"
+author: "kathryn_bazany"
+date: "2025-10-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load packages
+
+```{r}
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(pulsar)
+library(igraph)
+library(phyloseq)
+library(Matrix)
+library(corpcor)
+library(MatrixModels)
+library(parallel)
+library(huge)
+library(MASS)
+library(Matrix)
+library(VGAM)
+library(BiocManager)
+library(ggraph)
+library(devtools)
+library(SpiecEasi)
+library(flextable)
+```
+
+
+# Load files
+
+We will be making a total of 9 networks, wet, high, dry x bulk, rhizo, root. SpeicEasi wants standard singly rarefied tables.
+
+```{r}
+tab_16S <- read.table("asv_tables/tab_raw_16S.txt", header = TRUE, sep = "\t")
+tax_16S <- read.table("asv_tables/tax_raw_16S.txt", header = TRUE, sep = "\t")
+meta_16S <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t") #couldn't find raw metadata
+tab_ITS <- read.table("asv_tables/tab_raw_ITS.txt", header = TRUE, sep = "\t")
+tax_ITS <- read.table("asv_tables/tax_raw_ITS.txt", header = TRUE, sep = "\t")
+meta_ITS <- read.table("asv_tables/meta_rare_ITS.txt", header = TRUE, sep = "\t") #couldn't find raw metadata
+```
+
+# make tabs with common sample names in the same order
+
+```{r}
+# check dimensions
+dim(tab_16S)
+dim(tab_ITS)
+# check common column names
+common_cols <- intersect(names(tab_16S), names(tab_ITS))
+common_cols # 97 in common
+# Reordering to have the same column names and same order
+tab_16S <- tab_16S %>% dplyr::select(all_of(common_cols))
+tab_ITS <- tab_ITS %>% dplyr::select(all_of(common_cols))
+# check dimensions
+dim(tab_16S)
+dim(tab_ITS)
+```
+
+# make phyloseq objects
+
+```{r}
+ps_16S <- phyloseq(
+  otu_table(tab_16S, taxa_are_rows = T),
+  tax_table(as.data.frame(tax_16S) %>% 
+              as.matrix()),
+  sample_data(meta_16S))
+ps_ITS <- phyloseq(
+  otu_table(tab_ITS, taxa_are_rows = T),
+  tax_table(as.data.frame(tax_ITS) %>%
+              as.matrix()),
+  sample_data(meta_ITS))
+```
+
+# cut the data into climate types
+
+```{r}
+ps_16S_wet <- subset_samples(ps_16S, climate == "wet")
+ps_16S_high <- subset_samples(ps_16S, climate == "high")
+ps_16S_dry <- subset_samples(ps_16S, climate == "dry")
+ps_ITS_wet <- subset_samples(ps_ITS, climate == "wet")
+ps_ITS_high <- subset_samples(ps_ITS, climate == "high")
+ps_ITS_dry <- subset_samples(ps_ITS, climate == "dry")
+```
+
+# making some with all climate types but separated by niche to try to make networks with the climate types together
+
+```{r}
+ps_16S_wet_bulk <- subset_samples(ps_16S_wet, niche == "soil")
+ps_16S_wet_rhizo <- subset_samples(ps_16S_wet, niche == "rhizo")
+ps_16S_wet_root <- subset_samples(ps_16S_wet, niche == "roots")
+ps_16S_high_bulk <- subset_samples(ps_16S_high, niche == "soil")
+ps_16S_high_rhizo <- subset_samples(ps_16S_high, niche == "rhizo")
+ps_16S_high_root <- subset_samples(ps_16S_high, niche == "roots")
+ps_16S_dry_bulk <- subset_samples(ps_16S_dry, niche == "soil")
+ps_16S_dry_rhizo <- subset_samples(ps_16S_dry, niche == "rhizo")
+ps_16S_dry_root <- subset_samples(ps_16S_dry, niche == "roots")
+
+ps_ITS_wet_bulk <- subset_samples(ps_ITS_wet, niche == "soil")
+ps_ITS_wet_rhizo <- subset_samples(ps_ITS_wet, niche == "rhizo")
+ps_ITS_wet_root <- subset_samples(ps_ITS_wet, niche == "roots")
+ps_ITS_high_bulk <- subset_samples(ps_ITS_high, niche == "soil")
+ps_ITS_high_rhizo <- subset_samples(ps_ITS_high, niche == "rhizo")
+ps_ITS_high_root <- subset_samples(ps_ITS_high, niche == "roots")
+ps_ITS_dry_bulk <- subset_samples(ps_ITS_dry, niche == "soil")
+ps_ITS_dry_rhizo <- subset_samples(ps_ITS_dry, niche == "rhizo")
+ps_ITS_dry_root <- subset_samples(ps_ITS_dry, niche == "roots")
+```
+
+# combine the 16S and ITS data for each sample type 
+
+```{r}
+# check sample names
+sample_names(ps_16S_wet_bulk)
+sample_names(ps_ITS_wet_bulk)
+# sample names don't match
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_wet_bulk), sample_names(ps_ITS_wet_bulk))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_wet_bulk)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_wet_bulk)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_wet_bulk <- combined_phyloseq
+
+### Make for other networks
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_dry_root), sample_names(ps_ITS_dry_root))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_dry_root)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_dry_root)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_dry_root <- combined_phyloseq
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_dry_bulk), sample_names(ps_ITS_dry_bulk))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_dry_bulk)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_dry_bulk)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_dry_bulk <- combined_phyloseq
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_dry_rhizo), sample_names(ps_ITS_dry_rhizo))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_dry_rhizo)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_dry_rhizo)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_dry_rhizo <- combined_phyloseq
+
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_wet_rhizo), sample_names(ps_ITS_wet_rhizo))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_wet_rhizo)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_wet_rhizo)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_wet_rhizo <- combined_phyloseq
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_wet_root), sample_names(ps_ITS_wet_root))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_wet_root)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_wet_root)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_wet_root <- combined_phyloseq
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_high_bulk), sample_names(ps_ITS_high_bulk))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_high_bulk)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_high_bulk)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_high_bulk <- combined_phyloseq
+
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_high_rhizo), sample_names(ps_ITS_high_rhizo))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_high_rhizo)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_high_rhizo)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_high_rhizo <- combined_phyloseq
+
+# take only the samples that are in both
+shared_samples <- intersect(sample_names(ps_16S_high_root), sample_names(ps_ITS_high_root))
+shared_samples
+phyloseq_16S <- prune_samples(shared_samples, ps_16S_high_root)
+phyloseq_ITS <- prune_samples(shared_samples, ps_ITS_high_root)
+# merge otu tables
+otu_16S <- otu_table(phyloseq_16S)
+otu_ITS <- otu_table(phyloseq_ITS)
+# Combine the two OTU tables
+combined_otu <- merge(otu_16S, otu_ITS, by = 'row.names', all = TRUE)
+rownames(combined_otu) <- combined_otu[, 1]
+combined_otu <- combined_otu[, -1]
+combined_otu <- as.matrix(combined_otu)
+# combine vertically
+combined_otu <- rbind(otu_16S, otu_ITS)
+# merge taxonomy
+tax_16S <- tax_table(phyloseq_16S)
+tax_ITS <- tax_table(phyloseq_ITS)
+# Combine the taxonomy tables
+combined_tax <- rbind(tax_16S, tax_ITS)
+# ensure metadata is correct
+metadata_16S <- sample_data(phyloseq_16S)
+metadata_ITS <- sample_data(phyloseq_ITS)
+# Ensure metadata is consistent
+identical(metadata_16S, metadata_ITS) # If TRUE, you can proceed
+# check consistancy
+metadata_16S <- sample_data(phyloseq_16S)
+identical(rownames(metadata_16S), shared_samples) # If FALSE, align them manually
+rownames(metadata_16S) <- shared_samples
+#rownames(combined_otu) <- shared_samples
+dim(combined_otu)
+# make combined physeq
+combined_phyloseq <- phyloseq(
+  otu_table(combined_otu, taxa_are_rows = TRUE),
+  tax_table(combined_tax),
+  sample_data(metadata_16S)
+)
+# check physeq object
+combined_phyloseq@otu_table
+combined_phyloseq@tax_table
+combined_phyloseq@sam_data
+head(combined_phyloseq@otu_table)
+head(combined_phyloseq@tax_table)
+tail(combined_phyloseq@otu_table)
+tail(combined_phyloseq@tax_table)
+# make new object
+ps_high_root <- combined_phyloseq
+```
+
+
+
+### Rarefy the data. Every subset should be rarefied to the same depth
+
+```{r}
+# check the sample sums of each raw table
+sample_sums(ps_wet_bulk)
+# rarefy
+ps_wet_bulk_rare <- rarefy_even_depth(
+      ps_wet_bulk,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_wet_bulk_rare)
+# check to see if samples were dropped
+dim(ps_wet_bulk@otu_table)
+dim(ps_wet_bulk_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_wet_rhizo)
+# rarefy
+ps_wet_rhizo_rare <- rarefy_even_depth(
+      ps_wet_rhizo,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_wet_rhizo_rare)
+# check to see if samples were dropped
+dim(ps_wet_rhizo@otu_table)
+dim(ps_wet_rhizo_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_wet_root)
+# rarefy
+ps_wet_root_rare <- rarefy_even_depth(
+      ps_wet_root,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_wet_root_rare)
+# check to see if samples were dropped
+dim(ps_wet_root@otu_table)
+dim(ps_wet_root_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_high_bulk)
+# rarefy
+ps_high_bulk_rare <- rarefy_even_depth(
+      ps_high_bulk,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_high_bulk_rare)
+# check to see if samples were dropped
+dim(ps_high_bulk@otu_table)
+dim(ps_high_bulk_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_high_rhizo)
+# rarefy
+ps_high_rhizo_rare <- rarefy_even_depth(
+      ps_high_rhizo,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_high_rhizo_rare)
+# check to see if samples were dropped
+dim(ps_high_rhizo@otu_table)
+dim(ps_high_rhizo_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_high_root)
+# rarefy
+ps_high_root_rare <- rarefy_even_depth(
+      ps_high_root,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_high_root_rare)
+# check to see if samples were dropped
+dim(ps_high_root@otu_table)
+dim(ps_high_root_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_dry_bulk)
+# rarefy
+ps_dry_bulk_rare <- rarefy_even_depth(
+      ps_dry_bulk,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_dry_bulk_rare)
+# check to see if samples were dropped
+dim(ps_dry_bulk@otu_table)
+dim(ps_dry_bulk_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_dry_rhizo)
+# rarefy
+ps_dry_rhizo_rare <- rarefy_even_depth(
+      ps_dry_rhizo,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_dry_rhizo_rare)
+# check to see if samples were dropped
+dim(ps_dry_rhizo@otu_table)
+dim(ps_dry_rhizo_rare@otu_table)
+
+# check the sample sums of each raw table
+sample_sums(ps_dry_root)
+# rarefy
+ps_dry_root_rare <- rarefy_even_depth(
+      ps_dry_root,
+      sample.size = 10000,
+      rngseed = 56, # Use the same seed as set above
+      replace = FALSE, # Typically, subsampling is done without replacement
+      trimOTUs = TRUE, # Remove OTUs that become zero after rarefaction
+      verbose = TRUE # Set to FALSE to suppress messages
+    )
+# check sample size after
+sample_sums(ps_dry_root_rare)
+# check to see if samples were dropped
+dim(ps_dry_root@otu_table)
+dim(ps_dry_root_rare@otu_table)
+```
+
+
+# simplify the data
+
+```{r}
+# filter to the top 250 most abundant taxa
+taxa_abundance = taxa_sums(ps_wet_bulk)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_wet_bulk_filt = prune_taxa(top_taxa, ps_wet_bulk)
+# check otu table size
+dim(ps_wet_bulk_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_wet_rhizo)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_wet_rhizo_filt = prune_taxa(top_taxa, ps_wet_rhizo)
+# check otu table size
+dim(ps_wet_rhizo_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_wet_root)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_wet_root_filt = prune_taxa(top_taxa, ps_wet_root)
+# check otu table size
+dim(ps_wet_root_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_high_bulk)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_high_bulk_filt = prune_taxa(top_taxa, ps_high_bulk)
+# check otu table size
+dim(ps_high_bulk_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_high_rhizo)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_high_rhizo_filt = prune_taxa(top_taxa, ps_high_rhizo)
+# check otu table size
+dim(ps_high_rhizo_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_high_root)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_high_root_filt = prune_taxa(top_taxa, ps_high_root)
+# check otu table size
+dim(ps_high_root_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_dry_bulk)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_dry_bulk_filt = prune_taxa(top_taxa, ps_dry_bulk)
+# check otu table size
+dim(ps_dry_bulk_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_dry_rhizo)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_dry_rhizo_filt = prune_taxa(top_taxa, ps_dry_rhizo)
+# check otu table size
+dim(ps_dry_rhizo_filt@otu_table)
+
+taxa_abundance = taxa_sums(ps_dry_root)
+top_taxa = names(sort(taxa_abundance, decreasing = TRUE)[1:250])
+ps_dry_root_filt = prune_taxa(top_taxa, ps_dry_root)
+# check otu table size
+dim(ps_dry_root_filt@otu_table)
+```
+
+# Transform each subset to presense (1) and absense (0) for the sorensen networks:
+
+```{r}
+wet_bulk_pa <- ps_wet_bulk_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+wet_bulk_pa
+write_delim(wet_bulk_pa, "~/washington_transect/results/network_results_mb/sorenson_input/wet_bulk_pa.csv", delim = ",")
+
+wet_rhizo_pa <- ps_wet_rhizo_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+wet_rhizo_pa
+write_delim(wet_rhizo_pa, "~/washington_transect/results/network_results_mb/sorenson_input/wet_rhizo_pa.csv", delim = ",")
+
+wet_root_pa <- ps_wet_root_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+wet_root_pa
+write_delim(wet_root_pa, "~/washington_transect/results/network_results_mb/sorenson_input/wet_root_pa.csv", delim = ",")
+
+high_bulk_pa <- ps_high_bulk_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+high_bulk_pa
+write_delim(high_bulk_pa, "~/washington_transect/results/network_results_mb/sorenson_input/high_bulk_pa.csv", delim = ",")
+
+high_rhizo_pa <- ps_high_rhizo_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+high_rhizo_pa
+write_delim(high_rhizo_pa, "~/washington_transect/results/network_results_mb/sorenson_input/high_rhizo_pa.csv", delim = ",")
+
+high_root_pa <- ps_high_root_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+high_root_pa
+write_delim(high_root_pa, "~/washington_transect/results/network_results_mb/sorenson_input/high_root_pa.csv", delim = ",")
+
+dry_bulk_pa <- ps_dry_bulk_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+dry_bulk_pa
+write_delim(dry_bulk_pa, "~/washington_transect/results/network_results_mb/sorenson_input/dry_bulk_pa.csv", delim = ",")
+
+dry_rhizo_pa <- ps_dry_rhizo_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+dry_rhizo_pa
+write_delim(dry_rhizo_pa, "~/washington_transect/results/network_results_mb/sorenson_input/dry_rhizo_pa.csv", delim = ",")
+
+dry_root_pa <- ps_dry_root_filt@otu_table %>%
+  as.data.frame() %>%
+  mutate(across(everything(), ~ if_else(. > 0, 1, 0))) %>%
+  rownames_to_column(var = "ASV_ID")
+dry_root_pa
+write_delim(dry_root_pa, "~/washington_transect/results/network_results_mb/sorenson_input/dry_root_pa.csv", delim = ",")
+```
+
+
+
+# Make MB networks with the combined data tables
+
+```{r}
+se_wet_bulk_mb <- spiec.easi(ps_wet_bulk_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env.RData")
+```
+
+```{r}
+se_wet_rhizo_mb <- spiec.easi(ps_wet_rhizo_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_wet_root_mb <- spiec.easi(ps_wet_root_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_high_bulk_mb <- spiec.easi(ps_high_bulk_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_high_rhizo_mb <- spiec.easi(ps_high_rhizo_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_high_root_mb <- spiec.easi(ps_high_root_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_dry_bulk_mb <- spiec.easi(ps_dry_bulk_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_dry_rhizo_mb <- spiec.easi(ps_dry_rhizo_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+
+se_dry_root_mb <- spiec.easi(ps_dry_root_filt, 
+                                           method = 'mb', nlambda = 20,
+              lambda.min.ratio = 1e-2, pulsar.params = list(thresh = 0.05, rep.num = 100, ncores = 12))
+save.image(file = "se_mb_rar_together_env_2.RData")
+```
+
+
+# Visualize the networks
+
+```{r}
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# make color objects
+phylum_colors_by <- c("Acidobacteriota" = "#0B1F35", 
+                      "Actinomycetota" = "#0F2F49",  
+                      "Bacillota" = "#133F5E", 
+                      "Bacteroidota" = "#1E5F87", 
+                      "Chloroflexota" = "#2A7FB0", 
+                      "Myxococcota" = "#369DDA",
+                      "Patescibacteria" = "#5AB4E6", 
+                      "Plantomycetota" = "#6FBCE6",
+                      "Pseudomonadota" = "#8ACCE7", 
+                      "Verrucomicrobiota" = "#B3E7FA",
+                      "p__Ascomycota" = "#A77C00", 
+                      "p__Basidiomycota" = "#C59700", 
+                      "p__Mortierellomycota" = "#EAB400", 
+                      "p__Mucoromycota" =  "#FFD441",
+                      "p__Rozellomycota" = "#FFE77A", 
+                      "Thermoproteota" = "#7A0216")
+
+phylum_colors_by <- c(
+  "Acidobacteriota" = "#000000",
+  "Actinomycetota" = "#00254D",  
+  "Bacillota" = "#023E8A",
+  "Bacteroidota" = "#0077B6", 
+  "Chloroflexota" = "#0096C7", 
+  "Myxococcota" = "#00B4D8",
+  "Patescibacteria" = "#48CAE4", 
+  "Plantomycetota" = "#6FBCE6", 
+  "Pseudomonadota" = "#8ACCE7", 
+  "Verrucomicrobiota" = "#B3E7FA", 
+  "p__Ascomycota" = "#A77C00", 
+  "p__Basidiomycota" = "#C59700", 
+  "p__Mortierellomycota" = "#EAB400", 
+  "p__Mucoromycota" =  "#FFD441",
+  "p__Rozellomycota" = "#FFE77A", 
+  "Thermoproteota" = "#7A0216"
+)
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_wet_bulk_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_wet_rhizo_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_wet_root_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_high_bulk_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_high_rhizo_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_high_root_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_dry_bulk_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_dry_rhizo_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# modifying vertices for MB networks
+# extract all phyloseq info
+asv_ids <- taxa_names(ps_dry_root_filt)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+sample_metadata <- sample_data(ps_dry_root_filt)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# map to igraph object
+vertex_color_by <- phylum_colors_by[V(igraph_obj)$phylum]
+# Calculate vertex sizes based on degree
+vertex_sizes <- ((degree(igraph_obj))/1) + 1  # Adjust the multiplier for visibility
+## Modifying the layout
+fr <- layout_with_fr(igraph_obj) 
+## Plotting with fr layout
+png("results/network_results_mb/se_dry_root_mb.png", width = 1000, height = 1000)
+plot(igraph_obj, 
+     vertex.color = vertex_color_by, 
+     vertex.frame.color = "black",
+     vertex.size = vertex_sizes, 
+     vertex.label = NA, 
+     edge.color = "grey",
+     edge.curved = 0.3,
+     layout = fr)
+dev.off()
+```
+
+
+
+
+# Network metrics (using primarily iGraph to calculate)
+
+```{r}
+## wet_bulk
+taxa <- as.data.frame(ps_wet_bulk_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_wet_bulk_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_wet_bulk_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+phylum_colors_2 <- c(
+  "Acidobacteriota" = "#0B1F35",
+  "Actinomycetota" = "#0F2F49",  
+  "Bacillota" = "#133F5E",
+  "Bacteroidota" = "#1E5F87", 
+  "Chloroflexota" = "#2A7FB0", 
+  "Myxococcota" = "#369DDA",
+  "Patescibacteria" = "#5AB4E6", 
+  "Plantomycetota" = "#6FBCE6", 
+  "Pseudomonadota" = "#8ACCE7", 
+  "Verrucomicrobiota" = "#B3E7FA", 
+  "Ascomycota" = "#A77C00", 
+  "Basidiomycota" = "#C59700", 
+  "Mortierellomycota" = "#EAB400", 
+  "Mucoromycota" =  "#FFD441",
+  "Rozellomycota" = "#FFE77A", 
+  "Thermoproteota" = "#7A0216"
+)
+
+phylum_colors_2 <- c(
+  "Acidobacteriota" = "#000000",
+  "Actinomycetota" = "#00254D",  
+  "Bacillota" = "#023E8A",
+  "Bacteroidota" = "#0077B6", 
+  "Chloroflexota" = "#0096C7", 
+  "Myxococcota" = "#00B4D8",
+  "Patescibacteria" = "#48CAE4", 
+  "Plantomycetota" = "#6FBCE6", 
+  "Pseudomonadota" = "#8ACCE7", 
+  "Verrucomicrobiota" = "#B3E7FA", 
+  "Ascomycota" = "#A77C00", 
+  "Basidiomycota" = "#C59700", 
+  "Mortierellomycota" = "#EAB400", 
+  "Mucoromycota" =  "#FFD441",
+  "Rozellomycota" = "#FFE77A", 
+  "Thermoproteota" = "#7A0216"
+)
+
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_wet_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+close_plot_wet_bulk
+ggsave("results/network_results_mb/close_plot_wet_bulk.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_wet_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_wet_bulk
+ggsave("results/network_results_mb/between_plot_wet_bulk.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "wet_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# save a full summary
+network_summary_full <- network_summary
+
+
+## wet_rhizo
+taxa <- as.data.frame(ps_wet_rhizo_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_wet_rhizo_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_wet_rhizo_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_wet_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_wet_rhizo
+ggsave("results/network_results_mb/close_plot_wet_rhizo.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_wet_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_wet_rhizo
+ggsave("results/network_results_mb/between_plot_wet_rhizo.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "wet_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+## wet_root
+taxa <- as.data.frame(ps_wet_root_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_wet_root_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_wet_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_wet_root_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_wet_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_wet_root
+ggsave("results/network_results_mb/close_plot_wet_root.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_wet_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_wet_root
+ggsave("results/network_results_mb/between_plot_wet_root.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "wet_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+## high_bulk
+taxa <- as.data.frame(ps_high_bulk_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_high_bulk_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_high_bulk_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_high_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_high_bulk
+ggsave("results/network_results_mb/close_plot_high_bulk.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_high_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_high_bulk
+ggsave("results/network_results_mb/between_plot_high_bulk.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "high_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# save a full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## high_rhizo
+taxa <- as.data.frame(ps_high_rhizo_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_high_rhizo_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_high_rhizo_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_high_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_high_rhizo
+ggsave("results/network_results_mb/close_plot_high_rhizo.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_high_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_high_rhizo
+ggsave("results/network_results_mb/between_plot_high_rhizo.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "high_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+## high_root
+taxa <- as.data.frame(ps_high_root_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_high_root_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_high_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_high_root_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_high_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_high_root
+ggsave("results/network_results_mb/close_plot_high_root.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_high_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_high_root
+ggsave("results/network_results_mb/between_plot_high_root.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "high_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## dry_bulk
+taxa <- as.data.frame(ps_dry_bulk_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_dry_bulk_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_bulk_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_dry_bulk_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_dry_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_dry_bulk
+ggsave("results/network_results_mb/close_plot_dry_bulk.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_dry_bulk <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_dry_bulk
+ggsave("results/network_results_mb/between_plot_dry_bulk.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "dry_bulk"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# save a full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+
+## dry_rhizo
+taxa <- as.data.frame(ps_dry_rhizo_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_dry_rhizo_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_rhizo_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_dry_rhizo_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_dry_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_dry_rhizo
+ggsave("results/network_results_mb/close_plot_dry_rhizo.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_dry_rhizo <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_dry_rhizo
+ggsave("results/network_results_mb/between_plot_dry_rhizo.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "dry_rhizo"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+## dry_root
+taxa <- as.data.frame(ps_dry_root_filt@tax_table)
+taxonomy <- as.data.frame(tax_table(ps_dry_root_filt))
+# Load igraph object
+# extract the adjacency matrix from Spieceasi object
+weighted.adj.mat <- getRefit(se_dry_root_mb)
+# Convert the adjacency matrix to an igraph object
+igraph_obj <- adj2igraph(weighted.adj.mat)
+# add to igraph object
+V(igraph_obj)$phylum <- taxonomy$Phylum
+# check ids
+V(igraph_obj)$phylum
+# Extract edge weights
+edge_weights <- E(igraph_obj)$weight
+# Extract Node Information
+num_bacterial_nodes <- taxa %>%
+  filter(Kingdom == "Bacteria") %>%
+  nrow()
+num_fungal_nodes <- taxa %>%
+  filter(Kingdom == "k__Fungi") %>%
+  nrow()
+num_archaeal_nodes <- taxa %>%
+  filter(Kingdom == "Archaea") %>%
+  nrow()
+total_nodes <- as.data.frame(ps_dry_root_filt@tax_table) %>%
+  nrow()
+# Extract Edge Information (mb method doesn't use edge weight so negative will be 0)
+positive_edges <- sum(edge_weights > 0)
+negative_edges <- sum(edge_weights < 0)
+total_edges <- ecount(igraph_obj) # make sure pos_ed + neg_ed = total_ed!
+# Degree
+degree_values <- degree(igraph_obj)
+degree_values
+# Transitivity
+transitivity_val <- transitivity(igraph_obj, type = "global") # Global transitivity
+# Density
+density_val <- edge_density(igraph_obj)
+## transform edges to positive
+E(igraph_obj)$weight <- abs(edge_weights) # not necessary for mb method
+# calculations requiring positive edges
+closeness_values <- closeness(igraph_obj, normalized = TRUE) # need positive edges only
+# Modularity
+community_struct <- cluster_fast_greedy(igraph_obj) # need positive edges only
+modularity_val <- modularity(community_struct) # need positive edges only
+# betweenness
+betweenness_values <- betweenness(igraph_obj, normalized = TRUE) # need positive edges only
+# Combine Results into a Data Frame
+node_metrics <- data.frame(
+  Node_ID = V(igraph_obj)$name,
+#  Phylum = V(igraph_obj)$phylum,
+  Degree = degree_values,
+  Closeness = closeness_values, # not found (need positive edges only)
+  Betweenness = betweenness_values)
+# align phyloseq info to the node_metrics table (sanity check to see if phyla match)
+taxa_nodes <- cbind(taxa, node_metrics)
+# revise taxa_nodes
+taxa_nodes <- taxa_nodes %>%
+  mutate(across(everything(), ~ str_replace_all(., "(k__|p__|c__|o__|f__|g__|s__)", "")))
+taxa_nodes$Degree <- as.numeric(taxa_nodes$Degree)
+taxa_nodes$Closeness <- as.numeric(taxa_nodes$Closeness)
+taxa_nodes$Betweenness <- as.numeric(taxa_nodes$Betweenness)
+# make table
+network_summary <- data.frame(
+  Total_Nodes = total_nodes,
+  Bacterial_Nodes = num_bacterial_nodes,
+  Fungal_Nodes = num_fungal_nodes,
+  Total_Edges = total_edges,
+  Positive_Edges = positive_edges,
+  Negative_Edges = negative_edges,
+  Modularity = modularity_val, # not found (need positive values only)
+  Transitivity = transitivity_val,
+  Density = density_val)
+## plots
+# Ensure the color mapping is explicit
+all_phyla <- names(phylum_colors_2)
+# try reordering
+taxa_nodes <- taxa_nodes %>%
+  mutate(Phylum = factor(Phylum, levels = names(phylum_colors_2)))
+# hub plot (phylum)
+close_plot_dry_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Closeness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Closeness Centrality", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(0.1, .39) + ylim(1.1, 12.6)
+#  xlim(0, 30)
+close_plot_dry_root
+ggsave("results/network_results_mb/close_plot_dry_root.png", width = 4.8, height = 3.3)
+
+# betweenness vs degree
+between_plot_dry_root <- taxa_nodes %>%
+  ggplot(mapping = aes(Betweenness, Degree, color = Phylum)) + 
+  geom_point(size = 1.2) + 
+  labs(x = "Betweenness", y = "Degree") +
+  theme(panel.grid = element_blank(), 
+        panel.background = element_rect(color = 'black', fill = 'transparent'), 
+        legend.key = element_rect(color = 'transparent', fill = 'transparent'), 
+        legend.position = "right", legend.text = element_text(size = 10), 
+        legend.key.size = unit(0.3, "lines")) +
+  scale_color_manual("Phylum", values=phylum_colors_2) +
+  xlim(-0.001, .08) + ylim(0.1, 12.6)
+between_plot_dry_root
+ggsave("results/network_results_mb/between_plot_dry_root.png", width = 4.8, height = 3.3)
+
+## format table
+network_summary$Network <- "dry_root"
+network_summary <- network_summary %>%
+  dplyr::select(c(10, 1:9))
+# add to full summary
+network_summary_full <- rbind(network_summary_full, network_summary)
+
+```
+
+
+# put together degree and closeness charts
+
+```{r}
+full_close_plot <- ggarrange(close_plot_wet_bulk, close_plot_wet_rhizo, close_plot_wet_root,
+                                 close_plot_high_bulk, close_plot_high_rhizo, close_plot_high_root,
+                                 close_plot_dry_bulk, close_plot_dry_rhizo, close_plot_dry_root,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
+ggsave("results/network_results_mb/degree_closeness_plot.png", width = 8, height = 7)
+```
+
+# put together degree and betweenness charts
+
+```{r}
+full_between_plot <- ggarrange(between_plot_wet_bulk, between_plot_wet_rhizo, between_plot_wet_root,
+                                 between_plot_high_bulk, between_plot_high_rhizo, between_plot_high_root,
+                                 between_plot_dry_bulk, between_plot_dry_rhizo, between_plot_dry_root,
+          nrow = 3, ncol = 3, common.legend = TRUE, legend = "right")
+ggsave("results/network_results_mb/degree_betweenness_plot.png", width = 8, height = 7)
+```
+
+
+# Formatted table of basic network stats
+
+```{r}
+network_summary_full_tab <- network_summary_full %>%
+  separate(col = Network, into = c("Climate", "Niche"), sep = "_") %>%
+  mutate(Climate = recode(Climate, 
+                          "wet" = "Wet", "high" = "High", "dry" = "Dry")) %>%
+  mutate(Niche = recode(Niche,
+                          "bulk" = "Bulk Soil", "rhizo" = "Rhizosphere Soil", "root" = "Root Endosphere")) %>%
+  rename("Total Nodes" = "Total_Nodes",
+         "Bacterial Nodes" = "Bacterial_Nodes",
+         "Fungal Nodes" = "Fungal_Nodes", 
+         "Edges" = "Positive_Edges") %>%
+  dplyr::select(-Negative_Edges, -Total_Edges)
+
+# flextable
+flext <- flextable(network_summary_full_tab) %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  vline(j = c(2,5,6)) %>%
+  hline(i = c(3,6), j = c(2:9)) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all", j = 3:9) %>%
+  width(width = 0) %>%
+  autofit() 
+flext
+# save the table
+save_as_docx(flext, path = "results/network_results_mb/network_stat_table.docx")
+save_as_image(flext, path = "results/network_results_mb/network_stat_table.png")
+```
+
+
+# Table with percents
+
+```{r}
+network_percents <- network_summary_full_tab %>%
+  mutate("% Bacterial Nodes" = ((`Bacterial Nodes`/`Total Nodes`)*100)) %>%
+  mutate("% Fungal Nodes" = ((`Fungal Nodes`/`Total Nodes`)*100)) %>%
+  dplyr::select(c(1:2,10:11))
+network_percents
+
+# flextable
+flext <- flextable(network_percents) %>%
+  font(part = "all", fontname = "times new roman") %>%
+  fontsize(part = "all", size = 8) %>%
+  vline(j = c(2)) %>%
+  hline(i = c(3,6), j = c(2:4)) %>%
+  merge_v(j = 1) %>%
+  align(align = "center", part = "all", j = 3:4) %>%
+  width(width = 0) %>%
+  autofit() 
+flext
+# save the table
+save_as_docx(flext, path = "results/network_results_mb/network_percent_table.docx")
+save_as_image(flext, path = "results/network_results_mb/network_percent_table.png")
+```
+
+
