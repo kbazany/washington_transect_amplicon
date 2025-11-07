@@ -89,6 +89,25 @@ anova(mixed)
 summary(mixed)
 # confidence interval
 confint(mixed)
+
+### PhiPS2
+## site
+# model
+mixed = lmer(PhiPS2 ~ site + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
+
+## site
+# model
+mixed = lmer(PhiPS2 ~ climate + (1 | tree), data = data)
+anova(mixed)
+# summary 
+summary(mixed)
+# confidence interval
+confint(mixed)
 ```
 
 # boxplots
@@ -400,11 +419,11 @@ cor_table$testname <- as.character(c(
   "PhiPS2 by Elevation/Precipitation"))
 
 cor_table_filt <- cor_table %>%
-  dplyr::select(c(9,2,3))
+  dplyr::select(c(9,1,3)) # select estimate (1) instead of statistic (2)
 
 # Modify combined dataframe
 full_cor <- cor_table_filt %>%
-  rename(r = statistic) %>%
+  rename(r = estimate) %>%
   rename(`p-val` = p.value) %>%
   mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
   mutate(r = formatC(r, format = "f", digits = 3)) %>%
