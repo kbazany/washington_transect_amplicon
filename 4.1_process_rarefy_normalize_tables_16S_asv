@@ -53,15 +53,20 @@ row.names(meta) <- meta$sample_id
 meta <- meta[,-1]
 ```
 
-# Filter out rare OTUs
+# Filter out rare OTUs (currently set for no filtering of rare ASVs)
 
 ```{r}
 # total OTUs (change to fit dimensions of OTU table)
 otutotals <- mutate(.data = otutabtax, otutotal = rowSums(otutabtax[sapply(otutabtax, is.numeric)]))
 # identify rare OTUs (change based on data type and number of samples)
+
+## for no filtering 
+otunotrare <- otutotals
+
 # otutotal > ~ 30% of samples
-otunotrare <- otutotals %>%
-  filter(otutotal > 30)
+#otunotrare <- otutotals %>%
+#  filter(otutotal > 30)
+
 dim(otutotals) # check old dimensions
 dim(otunotrare) # check new dimensions to see how much is cut
 # cut rare column
@@ -131,7 +136,7 @@ totutab_rhizo <- totutab[grep("rhizo", row.names(totutab)),]
 totutab_root <- totutab[grep("root", row.names(totutab)),]
 ```
 
-# Write function for rare curves
+# Write function for rare curves (computationally demanding)
 
 ```{r}
 # Function for constructing rarefaction curves (written by Aaron Onufrak)
@@ -181,7 +186,7 @@ if((nrow(test.df[test.df$n<3,]))>0){
 }
 ```
 
-# Rarefy
+# Rarefy (computationally demanding step)
 
 ```{r}
 # Generating rarefaction curves
@@ -195,7 +200,7 @@ rareplot
 
 # save plot
 #####
-ggsave("results/rareplot_16S.png", 
+ggsave("results/rareplot_16S_rerun_hostreadsremoved_unknownkingphyremoved.png", 
        plot = rareplot, width = 16, height = 10)
 
 # Determining number of sequences per sample prior to rarefaction
@@ -204,13 +209,19 @@ totutab_sample_counts
 
 #####
 write.table(totutab_sample_counts, 
-            "results/sample_counts_pre_rare_16S.txt", 
+            "results/sample_counts_pre_rare_16S_hostreadsremoved_unknownkingphyremoved.txt", 
             col.names = TRUE, sep = '\t')
 ```
+
+
+The rarecurves look good with the fitlering of chloroplasts, mitochondria, and unknown kingdoms and phyla. 
 
 # Create Phyloseq Object
 
 ```{r}
+# rerotate the asv table
+otutab <- t(totutab)
+# load into phyloseq
 physeq <- phyloseq(
   otu_table(otutab, taxa_are_rows = T),
   tax_table(as.matrix(tax)),
@@ -225,24 +236,63 @@ physeq_soil <- subset_samples(physeq, niche == "soil")
 physeq_rhizo <- subset_samples(physeq, niche == "rhizo")
 physeq_root <- subset_samples(physeq, niche == "roots")
 
-# add occupancy filter
-physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
-physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
-physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
-physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+# check to see the ones with minimum reads
+sort(sample_sums(physeq)) # lowest read 18,602 (CR1.5_1708_soil) cut this
+# next lowest read is 26758
+sort(sample_sums(physeq_soil)) # lowest read 18,602 (CR1.5_1708_soil) cut this
+# next lowest read is 50842
+sort(sample_sums(physeq_rhizo)) # lowest read 27638 # keep
+sort(sample_sums(physeq_root)) # lowest read 26758 # keep
 
-# rarefy each sample type separately
-## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
-physeq_soil_rare <-prune_samples(sample_sums(physeq_soil)>=47000, physeq_soil) %>%
-  rarefy_even_depth(rngseed = 555)
-physeq_rhizo_rare <-prune_samples(sample_sums(physeq_rhizo)>=26700, physeq_rhizo) %>%
-  rarefy_even_depth(rngseed = 555)
-physeq_root_rare <-prune_samples(sample_sums(physeq_root)>=26000, physeq_root) %>%
-  rarefy_even_depth(rngseed = 555)
+## taking out to run without occupancy filter
+# add occupancy filter
+#physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 33)
+#physeq_soil <- tax_filter(physeq_soil, min_prevalence = 4, min_total_abundance = 11)
+#physeq_rhizo <- tax_filter(physeq_rhizo, min_prevalence = 4, min_total_abundance = 11)
+#physeq_root <- tax_filter(physeq_root, min_prevalence = 4, min_total_abundance = 11)
+
+## taking out to run without occupancy filter
+# testing strict filtering
+#physeq <- tax_filter(physeq, min_prevalence = 10, min_total_abundance = 3000)
 
 # rarefy the whole set when looking at all the compartments together
-physeq_rare <-prune_samples(sample_sums(physeq)>=26500, physeq) %>%
+physeq_rare <- prune_samples(sample_sums(physeq)>=26000, physeq) %>%
   rarefy_even_depth(rngseed = 555) 
+## warning message:
+# 953 OTUs were removed because they are no longer present in any sample after random subsampling
+
+dim(physeq@otu_table)
+dim(physeq_rare@otu_table)
+
+# rarefy each sample type separately for analysis of just one compartment
+## first line cuts samples below threshold, second line rarefies to the lowest remaining sample
+physeq_soil_rare <- prune_samples(sample_sums(physeq_soil)>=26000, physeq_soil) %>%
+  rarefy_even_depth(rngseed = 555)
+# 3461 OTUs were removed because they are no longer present in any sample after random subsampling
+
+dim(physeq_soil@otu_table)
+dim(physeq_soil_rare@otu_table)
+
+physeq_rhizo_rare <- prune_samples(sample_sums(physeq_rhizo)>=26000, physeq_rhizo) %>%
+  rarefy_even_depth(rngseed = 555)
+# 4929 OTUs were removed because they are no longer present in any sample after random subsampling
+
+dim(physeq_rhizo@otu_table)
+dim(physeq_rhizo_rare@otu_table)
+
+physeq_root_rare <- prune_samples(sample_sums(physeq_root)>=26000, physeq_root) %>%
+  rarefy_even_depth(rngseed = 555)
+# 28556 OTUs were removed because they are no longer present in any sample after random subsampling
+## lots of OTUs removed from roots specifically
+
+dim(physeq_root@otu_table)
+dim(physeq_root_rare@otu_table) # down to 5329 ASVs
+
+
+## taking out to rarefy without occupancy filter
+# rarefy for strict filtering
+#physeq_rare <- prune_samples(sample_sums(physeq)>=10000, physeq) %>%
+#  rarefy_even_depth(rngseed = 555) 
 
 # check tables
 head(sample_sums(physeq))
@@ -295,6 +345,21 @@ tax_root_rare <- as.data.frame(physeq_root_rare@tax_table)
 meta_root_rare <- as.data.frame(physeq_root_rare@sam_data)
 ```
 
+# check dimensions of the raw and rare files
+
+```{r}
+dim(otutab_raw)
+dim(otutab_rare)
+
+dim(otutab_soil_raw)
+dim(otutab_soil_rare)
+
+dim(otutab_rhizo_raw)
+dim(otutab_rhizo_rare)
+
+dim(otutab_root_raw)
+dim(otutab_root_rare)
+```
 
 # perform TSS normalization
 
