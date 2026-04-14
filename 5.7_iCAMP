@@ -1,0 +1,445 @@
+---
+title: "5.7_iCAMP"
+author: "kathryn_bazany"
+date: "2026-03-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# install packages
+
+
+install.packages("iCAMP")
+
+
+```{r}
+library("iCAMP")
+# check version
+packageVersion("iCAMP")
+library("ape")
+
+```
+
+# load files
+
+```{r}
+tab <- read.table("asv_tables/tab_raw_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_raw_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_full_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# load table with FASTA sequences
+fasta_tab <- read.table("o16S_asvtab.txt", header = TRUE, sep = "\t")
+```
+
+# reformat and filter tab
+
+```{r}
+head(ttab)
+dim(ttab)
+rowSums(ttab)
+head(fasta_tab)
+```
+
+# making new tables based on the fasta table as a starting point
+
+```{r}
+# new ttab
+tab <- fasta_tab %>%
+  select(-c(Row.names, Kingdom, Phylum, Class, Order, Family, Genus, Species))
+ttab <- t(tab)
+# new tax
+tax <- fasta_tab %>%
+  select(c(Kingdom, Phylum, Class, Order, Family, Genus, Species))
+# just asv and fasta
+asv_fasta <- fasta_tab %>%
+  select(Row.names)
+```
+
+
+# filtering rare taxa
+
+```{r}
+comm <- ttab  # rows = samples, cols = ASVs
+
+prev_min <- 5
+tot_min  <- 20
+
+keep_asv <- (colSums(comm > 0) >= prev_min) & (colSums(comm) >= tot_min)
+comm_f <- comm[, keep_asv, drop = FALSE]
+
+c(n_asv_before = ncol(comm),
+  n_asv_after  = ncol(comm_f),
+  reads_before = sum(comm),
+  reads_after  = sum(comm_f),
+  frac_reads_kept = sum(comm_f)/sum(comm))
+```
+
+
+# using blanks and ntcs as a benchmark to filter likely contaminants
+
+```{r}
+ctrl <- c("Extraction_blank_rhizo_soil", "NTC_Amp1", "NTC_Amp2")
+ctrl <- intersect(ctrl, rownames(comm))  # in case some absent
+true <- setdiff(rownames(comm), ctrl)
+
+max_ctrl <- apply(comm[ctrl, , drop=FALSE], 2, max)
+max_true <- apply(comm[true, , drop=FALSE], 2, max)
+
+keep_not_contam <- (max_true + 1) > (max_ctrl + 1)  # drop if max_ctrl >= max_true
+comm_fc <- comm[, keep_asv & keep_not_contam, drop=FALSE]
+
+# cut ctrls
+comm_fc <- comm_fc[setdiff(rownames(comm_fc), ctrl), , drop=FALSE]
+
+
+# check new table
+comm_fc
+head(comm_fc)
+dim(comm_fc)
+dim(comm) 
+dim(ttab)
+rowSums(comm_fc)
+```
+
+# filtering the taxonomy and fasta based on remaining asvs
+
+```{r}
+keep_asvs <- colnames(comm_fc)
+# total number of asvs that we are keeping
+length(keep_asvs)
+
+# making a new object with the asvs and fastas as columns
+asv_seq <- tibble::tibble(
+  ASV = rownames(fasta_tab),
+  seq = fasta_tab$Row.names
+)
+
+# making object with only the ASVs we are keeping
+asv_seq_f <- asv_seq[match(keep_asvs, asv_seq$ASV), ]
+stopifnot(all(asv_seq_f$ASV == keep_asvs))
+
+# filter taxonomy
+tax <- fasta_tab %>%
+  dplyr::select(Kingdom, Phylum, Class, Order, Family, Genus, Species)
+
+rownames(tax) <- rownames(fasta_tab)  # should be ASV_16S_*
+tax_f <- tax[keep_asvs, , drop=FALSE]
+
+# check metadata alignment
+meta_use <- meta[rownames(comm_fc), , drop=FALSE]
+
+rownames(comm_fc)
+rownames(meta)
+
+## this isn't working because they need to be in the same order
+# stopifnot(all(rownames(comm_fc) == rownames(meta)))
+```
+
+# reorder metadata based on comm_fc
+
+```{r}
+# IDs present in each
+ids_comm <- rownames(comm_fc)
+ids_meta <- rownames(meta)
+
+# check for mismatches
+missing_in_meta <- setdiff(ids_comm, ids_meta)
+missing_in_comm <- setdiff(ids_meta, ids_comm)
+
+missing_in_meta
+missing_in_comm
+
+# since both are empty I can just reorder
+meta_use <- meta[ids_comm, , drop = FALSE]
+stopifnot(identical(rownames(meta_use), rownames(comm_fc)))
+
+# check rows
+rownames(comm_fc)
+rownames(meta_use)
+
+# check
+stopifnot(all(rownames(comm_fc) == rownames(meta_use)))
+```
+
+
+# write filtered files
+
+```{r}
+write.table(comm_fc, "iCAMP/comm_filtered.txt", sep = "\t", quote = FALSE)
+write.table(tax_f, "iCAMP/tax_filtered.txt",  sep = "\t", quote = FALSE)
+
+# write a fasta file for the tree build
+con <- file("iCAMP/asv_filtered.fasta", "w")
+for (i in seq_len(nrow(asv_seq_f))) {
+  writeLines(paste0(">", asv_seq_f$ASV[i]), con)
+  writeLines(asv_seq_f$seq[i], con)
+}
+close(con)
+
+# write metadata
+write.table(meta_use, "iCAMP/meta.txt", sep = "\t", quote = FALSE)
+```
+
+# check stats
+
+```{r}
+# sequence lengths
+nchar(asv_seq$seq)
+# number of asvs
+ncol(comm_fc)
+```
+
+
+# next will have to make a phylogenetic tree 
+
+Do this in the server in a pixi env that has mafft and fasttree installed:
+## build tree
+mafft --auto --thread 12 asv_filtered.fasta > asv_aligned.fasta
+## run FastTree
+FastTree -nt -gtr asv_aligned.fasta > asv_tree.nwk
+
+
+# load tree file into R to proceed with the iCAMP analysis
+
+```{r}
+# load tree
+tree <- read.tree("iCAMP/asv_tree.nwk")
+
+# prune to exactly the ASVs in comm_fc
+keep <- intersect(colnames(comm_fc), tree$tip.label)
+comm_fc <- comm_fc[, keep, drop=FALSE]
+tree <- drop.tip(tree, setdiff(tree$tip.label, keep))
+
+```
+
+
+# run iCAMP
+
+Prep steps
+
+```{r}
+# align metadata to comm
+sample_meta <- meta_use[rownames(comm_fc), , drop=FALSE]
+
+# prune & reorder to match tree
+keep <- intersect(colnames(comm_fc), tree$tip.label)
+comm_fc <- comm_fc[, keep, drop=FALSE]
+tree <- drop.tip(tree, setdiff(tree$tip.label, keep))
+comm_fc <- comm_fc[, tree$tip.label, drop=FALSE]  # enforce same order
+stopifnot(identical(colnames(comm_fc), tree$tip.label))
+
+```
+# create grouping variables
+
+```{r}
+sample_meta$group <- interaction(sample_meta$climate, sample_meta$niche, sep = "_", drop = TRUE)
+table(sample_meta$group)
+```
+
+# run iCAMP
+
+rand = 1 with 12 cores took 25 minutes
+But the oracle says that the first one is the longest so I'm going to try running it again with 999. If this beats the server I'm going to be so mad lol.
+
+Cutting the code chunk out so it doesn't rerun because it's massive.
+#
+ic <- icamp.big(
+  comm = comm_fc,
+  tree = tree,
+  rand = 999,
+  nworker = 12,
+  memory.G = 999,
+  prefix = "climXniche",
+  output.wd = "iCAMP"
+)
+#
+
+
+### for running in the server
+
+#
+saveRDS(comm_fc, "iCAMP/comm_fc.rds")
+saveRDS(tree, "iCAMP/tree.rds")
+write.csv(sample_meta, "iCAMP/sample_meta.csv")
+#
+
+
+# also repeating here locally in case the server run fails. 
+
+###################### Increase filtering criteria #############################
+
+# load files
+
+```{r}
+tab <- read.table("asv_tables/tab_raw_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_raw_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_full_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+# load table with FASTA sequences
+fasta_tab <- read.table("o16S_asvtab.txt", header = TRUE, sep = "\t")
+```
+
+# reformat and filter tab
+
+```{r}
+head(ttab)
+dim(ttab)
+rowSums(ttab)
+head(fasta_tab)
+```
+
+# making new tables based on the fasta table as a starting point
+
+```{r}
+# new ttab
+tab <- fasta_tab %>%
+  select(-c(Row.names, Kingdom, Phylum, Class, Order, Family, Genus, Species))
+ttab <- t(tab)
+# new tax
+tax <- fasta_tab %>%
+  select(c(Kingdom, Phylum, Class, Order, Family, Genus, Species))
+# just asv and fasta
+asv_fasta <- fasta_tab %>%
+  select(Row.names)
+```
+
+
+# filtering rare taxa
+
+```{r}
+comm <- ttab  # rows = samples, cols = ASVs
+
+# much stricter critera filtering for prevalence and total minimum
+prev_min <- 10
+tot_min  <- 200
+
+keep_asv <- (colSums(comm > 0) >= prev_min) & (colSums(comm) >= tot_min)
+comm_f <- comm[, keep_asv, drop = FALSE]
+
+c(n_asv_before = ncol(comm),
+  n_asv_after  = ncol(comm_f),
+  reads_before = sum(comm),
+  reads_after  = sum(comm_f),
+  frac_reads_kept = sum(comm_f)/sum(comm))
+```
+
+
+# using blanks and ntcs as a benchmark to filter likely contaminants
+
+```{r}
+ctrl <- c("Extraction_blank_rhizo_soil", "NTC_Amp1", "NTC_Amp2")
+ctrl <- intersect(ctrl, rownames(comm))  # in case some absent
+true <- setdiff(rownames(comm), ctrl)
+
+max_ctrl <- apply(comm[ctrl, , drop=FALSE], 2, max)
+max_true <- apply(comm[true, , drop=FALSE], 2, max)
+
+keep_not_contam <- (max_true + 1) > (max_ctrl + 1)  # drop if max_ctrl >= max_true
+comm_fc <- comm[, keep_asv & keep_not_contam, drop=FALSE]
+
+# cut ctrls
+comm_fc <- comm_fc[setdiff(rownames(comm_fc), ctrl), , drop=FALSE]
+
+
+# check new table
+comm_fc
+head(comm_fc)
+dim(comm_fc)
+dim(comm) 
+dim(ttab)
+rowSums(comm_fc)
+```
+
+# filtering the taxonomy and fasta based on remaining asvs
+
+```{r}
+keep_asvs <- colnames(comm_fc)
+# total number of asvs that we are keeping
+length(keep_asvs)
+
+# making a new object with the asvs and fastas as columns
+asv_seq <- tibble::tibble(
+  ASV = rownames(fasta_tab),
+  seq = fasta_tab$Row.names
+)
+
+# making object with only the ASVs we are keeping
+asv_seq_f <- asv_seq[match(keep_asvs, asv_seq$ASV), ]
+stopifnot(all(asv_seq_f$ASV == keep_asvs))
+
+# filter taxonomy
+tax <- fasta_tab %>%
+  dplyr::select(Kingdom, Phylum, Class, Order, Family, Genus, Species)
+
+rownames(tax) <- rownames(fasta_tab)  # should be ASV_16S_*
+tax_f <- tax[keep_asvs, , drop=FALSE]
+
+# check metadata alignment
+meta_use <- meta[rownames(comm_fc), , drop=FALSE]
+
+rownames(comm_fc)
+rownames(meta)
+
+## this isn't working because they need to be in the same order
+# stopifnot(all(rownames(comm_fc) == rownames(meta)))
+```
+
+# reorder metadata based on comm_fc
+
+```{r}
+# IDs present in each
+ids_comm <- rownames(comm_fc)
+ids_meta <- rownames(meta)
+
+# check for mismatches
+missing_in_meta <- setdiff(ids_comm, ids_meta)
+missing_in_comm <- setdiff(ids_meta, ids_comm)
+
+missing_in_meta
+missing_in_comm
+
+# since both are empty I can just reorder
+meta_use <- meta[ids_comm, , drop = FALSE]
+stopifnot(identical(rownames(meta_use), rownames(comm_fc)))
+
+# check rows
+rownames(comm_fc)
+rownames(meta_use)
+
+# check
+stopifnot(all(rownames(comm_fc) == rownames(meta_use)))
+```
+
+
+
+
+# run iCAMP
+
+Trying with more filtering
+Taking this out for now because I was able to run in full on the server.
+#
+ic <- icamp.big(
+  comm = comm_fc,
+  tree = tree,
+  rand = 999,
+  nworker = 12,
+  memory.G = 999,
+  prefix = "more_filt",
+  output.wd = "iCAMP/more_filt"
+)
+#
+
+
+
+
