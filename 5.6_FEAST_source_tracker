@@ -1,0 +1,671 @@
+---
+title: "5.6_source_tracking"
+author: "kathryn_bazany"
+date: "2026-01-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# trying to uninstall and reinstall following the email instructions from the developer
+according to them I had been using an outdated version of feast
+
+```{r}
+# remove feast
+# remove.packages("FEAST")
+
+# install dependencies
+Packages <- c("Rcpp", "RcppArmadillo", "vegan", "dplyr", "reshape2", "gridExtra", "ggplot2", "ggthemes")
+# install.packages(Packages)
+# install.packages("ggthemes")
+lapply(Packages, library, character.only = TRUE)
+
+# update access token
+# library("usethis")
+# gitcreds::gitcreds_set()
+# paste in token
+
+# reinstall
+# devtools::install_github("cozygene/FEAST")
+
+# load 
+library("FEAST")
+library("ggpubr")
+library("tidyverse")
+library("car")
+library("agricolae")
+```
+
+
+
+
+
+# load files
+
+```{r}
+meta <- read_delim("feast_input/feast_meta_sink_rhizo_source_bulk.csv", delim = ",")
+tab <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t", check.names = FALSE)
+```
+
+# reformat so only samples in meta are included
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+meta <- as.data.frame(meta)
+head(tab)
+head(ttab)
+head(meta)
+
+# extract sample ID
+meta_1 <- meta %>%
+  mutate(sample_id = as.character(SampleID))
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id") 
+# combine meta and ttab
+x <- meta_1 %>%
+  inner_join(ttab_1, by = "sample_id")
+# extract the number of columns in the metadata
+mcol <- ((ncol(x)) - (ncol(ttab)) + 1)
+# extract filtered tab
+tab_filt <- x[ ,(mcol-1):ncol(x)]
+feast_tab <- tab_filt %>%
+  column_to_rownames(var = "sample_id") %>%
+  t() 
+# trying a rotated tab
+tfeast_tab <- t(feast_tab)
+# filtered meta
+meta_filt <- x[,1:(mcol-2)] # check to make sure sample_id and SampleID have the same contents
+feast_meta <- meta_filt %>%
+  mutate(SampleID = as.character(SampleID))
+
+# still not lining up :(
+write_delim(feast_meta, "feast_meta_test.csv", delim = ",")
+write_delim(as.data.frame(feast_tab), "feast_tab_test.csv", delim = ",")
+## they are exactly the same
+feast_meta_rownames <- feast_meta %>%
+  column_to_rownames(var = "SampleID") %>%
+  inner_join(feast_meta)
+
+# setting rowid
+rownames(feast_meta) <- feast_meta$SampleID
+```
+
+
+# run the feast
+
+```{r}
+### this worked
+FEAST_output <- FEAST(C = tfeast_tab, metadata = feast_meta, different_sources_flag = 1, dir_path = "results/FEAST_results/",
+                      outfile="bulk_to_rhizo")
+# IT WORKED THANK GEEEBUSSSSS
+
+```
+
+## running on bulk and rhizo to root endosphere
+
+```{r}
+meta <- read_delim("feast_input/feast_meta_sink_root_source_rhizo_bulk.csv", delim = ",")
+```
+
+# reformat so only samples in meta are included
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+meta <- as.data.frame(meta)
+head(tab)
+head(ttab)
+head(meta)
+
+# extract sample ID
+meta_1 <- meta %>%
+  mutate(sample_id = as.character(SampleID))
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id") 
+# combine meta and ttab
+x <- meta_1 %>%
+  inner_join(ttab_1, by = "sample_id")
+# extract the number of columns in the metadata
+mcol <- ((ncol(x)) - (ncol(ttab)) + 1)
+# extract filtered tab
+tab_filt <- x[ ,(mcol-1):ncol(x)]
+feast_tab <- tab_filt %>%
+  column_to_rownames(var = "sample_id") %>%
+  t() 
+# trying a rotated tab
+tfeast_tab <- t(feast_tab)
+# filtered meta
+meta_filt <- x[,1:(mcol-2)] # check to make sure sample_id and SampleID have the same contents
+feast_meta <- meta_filt %>%
+  mutate(SampleID = as.character(SampleID))
+
+# still not lining up :(
+write_delim(feast_meta, "feast_meta_test.csv", delim = ",")
+write_delim(as.data.frame(feast_tab), "feast_tab_test.csv", delim = ",")
+## they are exactly the same
+feast_meta_rownames <- feast_meta %>%
+  column_to_rownames(var = "SampleID") %>%
+  inner_join(feast_meta)
+
+# setting rowid
+rownames(feast_meta) <- feast_meta$SampleID
+feast_meta
+tfeast_tab
+```
+
+# missing one, let's find it
+
+```{r}
+meta_ids <- meta$SampleID
+tab_ids <- colnames(tab)
+
+setdiff(meta_ids, tab_ids)  # IDs in metadata but not in data
+setdiff(tab_ids, meta_ids)  # IDs in data but not in metadata
+
+# change 116 to 121 in the meta (typo was noted in lab notebook)
+```
+
+# Feast
+
+```{r}
+FEAST_output <- FEAST(C = tfeast_tab, metadata = feast_meta, different_sources_flag = 1, dir_path = "results/FEAST_results/",
+                      outfile="bulk_and_rhizo_to_root")
+```
+
+### ITS ###
+
+# load files
+
+```{r}
+meta <- read_delim("feast_input/feast_meta_sink_rhizo_source_bulk.csv", delim = ",")
+tab <- read.table("asv_tables/tab_rare_ITS.txt", header = TRUE, sep = "\t", check.names = FALSE)
+```
+
+# reformat so only samples in meta are included
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+meta <- as.data.frame(meta)
+head(tab)
+head(ttab)
+head(meta)
+
+# extract sample ID
+meta_1 <- meta %>%
+  mutate(sample_id = as.character(SampleID))
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id") 
+# combine meta and ttab
+x <- meta_1 %>%
+  inner_join(ttab_1, by = "sample_id")
+# extract the number of columns in the metadata
+mcol <- ((ncol(x)) - (ncol(ttab)) + 1)
+# extract filtered tab
+tab_filt <- x[ ,(mcol-1):ncol(x)]
+feast_tab <- tab_filt %>%
+  column_to_rownames(var = "sample_id") %>%
+  t() 
+# trying a rotated tab
+tfeast_tab <- t(feast_tab)
+# filtered meta
+meta_filt <- x[,1:(mcol-2)] # check to make sure sample_id and SampleID have the same contents
+feast_meta <- meta_filt %>%
+  mutate(SampleID = as.character(SampleID))
+
+# still not lining up :(
+write_delim(feast_meta, "feast_meta_test_ITS.csv", delim = ",")
+write_delim(as.data.frame(feast_tab), "feast_tab_test_ITS.csv", delim = ",")
+## they are exactly the same
+feast_meta_rownames <- feast_meta %>%
+  column_to_rownames(var = "SampleID") %>%
+  inner_join(feast_meta)
+
+# setting rowid
+rownames(feast_meta) <- feast_meta$SampleID
+```
+
+
+# run the feast
+
+```{r}
+### this worked
+FEAST_output <- FEAST(C = tfeast_tab, metadata = feast_meta, different_sources_flag = 1, dir_path = "results/FEAST_results/",
+                      outfile="bulk_to_rhizo_ITS")
+# IT WORKED THANK GEEEBUSSSSS
+
+```
+
+## running on bulk and rhizo to root endosphere
+
+```{r}
+meta <- read_delim("feast_input/feast_meta_sink_root_source_rhizo_bulk.csv", delim = ",")
+```
+
+# reformat so only samples in meta are included
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+meta <- as.data.frame(meta)
+head(tab)
+head(ttab)
+head(meta)
+
+# extract sample ID
+meta_1 <- meta %>%
+  mutate(sample_id = as.character(SampleID))
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id") 
+# combine meta and ttab
+x <- meta_1 %>%
+  inner_join(ttab_1, by = "sample_id")
+# extract the number of columns in the metadata
+mcol <- ((ncol(x)) - (ncol(ttab)) + 1)
+# extract filtered tab
+tab_filt <- x[ ,(mcol-1):ncol(x)]
+feast_tab <- tab_filt %>%
+  column_to_rownames(var = "sample_id") %>%
+  t() 
+# trying a rotated tab
+tfeast_tab <- t(feast_tab)
+# filtered meta
+meta_filt <- x[,1:(mcol-2)] # check to make sure sample_id and SampleID have the same contents
+feast_meta <- meta_filt %>%
+  mutate(SampleID = as.character(SampleID))
+
+# still not lining up :(
+write_delim(feast_meta, "feast_meta_test.csv", delim = ",")
+write_delim(as.data.frame(feast_tab), "feast_tab_test.csv", delim = ",")
+## they are exactly the same
+feast_meta_rownames <- feast_meta %>%
+  column_to_rownames(var = "SampleID") %>%
+  inner_join(feast_meta)
+
+# setting rowid
+rownames(feast_meta) <- feast_meta$SampleID
+feast_meta
+tfeast_tab
+```
+
+# missing one, let's find it
+
+```{r}
+meta_ids <- meta$SampleID
+tab_ids <- colnames(tab)
+
+setdiff(meta_ids, tab_ids)  # IDs in metadata but not in data
+setdiff(tab_ids, meta_ids)  # IDs in data but not in metadata
+
+# change 116 to 121 in the meta (typo was noted in lab notebook)
+```
+
+# Feast
+
+```{r}
+FEAST_output <- FEAST(C = tfeast_tab, metadata = feast_meta, different_sources_flag = 1, dir_path = "results/FEAST_results/",
+                      outfile="bulk_and_rhizo_to_root_ITS")
+```
+
+
+#### Analyzing FEAST results
+
+```{r}
+feast_results <- read_delim("feast_input/feast_compiled_results.csv", delim = ",")
+```
+
+# averages
+
+```{r}
+feast_averages <- feast_results %>%
+  group_by(Species, Sink) %>%
+  summarise(percent_from_bulk, percent_from_rhizo, percent_from_unknown)
+
+library(dplyr)
+
+feast_averages <- feast_results %>%
+  group_by(Species, Sink, Amplicon) %>%
+  summarise(
+    avg_percent_from_bulk = mean(percent_from_bulk, na.rm = TRUE),
+    avg_percent_from_rhizo = mean(percent_from_rhizo, na.rm = TRUE),
+    avg_percent_from_unknown = mean(percent_from_unknown, na.rm = TRUE)
+  )
+
+```
+
+# manipulate the results
+
+```{r}
+feast_long <- feast_results %>%
+  pivot_longer(cols = c(percent_from_bulk, percent_from_rhizo, percent_from_unknown), names_to = "Source", values_to = "percent")
+
+
+feast_long <- feast_results %>%
+  rename(Original_Source = Source) %>% # Rename existing Source column
+  pivot_longer(
+    cols = c(percent_from_bulk, percent_from_rhizo, percent_from_unknown),
+    names_to = "Source",
+    values_to = "percent"
+  ) %>%
+  select(-Original_Source) %>%
+  mutate(Source = str_remove(Source, "percent_from_"))
+
+```
+
+
+
+### let's make some boxplots
+
+```{r}
+# feast boxplot
+feast_box_16S <- ggplot(feast_long, aes(x = Species, color = Source, y = percent)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#a64551", "#a68a45", "#9874D3")) + 
+  xlab("Host Species") + ylab("16S Shannon Diversity") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+feast_box_16S
+
+```
+
+subset by Sink and Amplicon
+
+```{r}
+# subsetting
+feast_16S <- feast_long %>%
+  filter(Amplicon == "16S")
+feast_ITS <- feast_long %>%
+  filter(Amplicon == "ITS")
+# subestting by Sink
+feast_16S_rhizo <- feast_16S %>%
+  filter(Sink == "Rhizo") %>%
+  filter(percent != "NA")
+feast_16S_root <- feast_16S %>%
+  filter(Sink == "Root")
+feast_ITS_rhizo <- feast_ITS %>%
+  filter(Sink == "Rhizo") %>%
+  filter(percent != "NA")
+feast_ITS_root <- feast_ITS %>%
+  filter(Sink == "Root")
+```
+
+
+```{r}
+# 16S rhizo
+feast_16S_rhizo_box <- ggplot(feast_16S_rhizo, 
+                              aes(x = Species, color = Source, y = percent)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  ylim(0, 1) +
+  scale_color_manual(values = c("#a64551", "#9874D3")) + 
+  labs(x = "", y = "16S\nPercent Tracked", title = "Rhizosphere") +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+feast_16S_rhizo_box
+
+# 16S root
+feast_16S_root_box <- ggplot(feast_16S_root, 
+                              aes(x = Species, color = Source, y = percent)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  ylim(0, 1) +  scale_color_manual(values = c("#a64551", "#a68a45", "#9874D3")) + 
+  xlab("") + ylab("") + ggtitle("Root Endosphere") +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+feast_16S_root_box
+
+# ITS rhizo
+feast_ITS_rhizo_box <- ggplot(feast_ITS_rhizo, 
+                              aes(x = Species, color = Source, y = percent)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  ylim(0, 1) + scale_color_manual(values = c("#a64551", "#9874D3")) + 
+  xlab("Host Species") + ylab("ITS\nPercent Tracked") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+feast_ITS_rhizo_box
+
+# ITS root
+feast_ITS_root_box <- ggplot(feast_ITS_root, 
+                              aes(x = Species, color = Source, y = percent)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  ylim(0, 1) + scale_color_manual(values = c("#a64551", "#a68a45", "#9874D3")) + 
+  xlab("Host Species") + ylab("") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+feast_ITS_root_box
+
+```
+
+# arrange figures
+
+```{r}
+
+feast_rhizo_box_stacked <- ggarrange(feast_16S_rhizo_box, feast_ITS_rhizo_box, 
+          ncol = 1, nrow = 2, 
+          common.legend = TRUE, legend = "none")
+feast_rhizo_box_stacked
+feast_root_box_stacked <- ggarrange(feast_16S_root_box, feast_ITS_root_box, 
+          ncol = 1, nrow = 2, 
+          common.legend = TRUE, legend = "right")
+feast_root_box_stacked
+feast_box_all <- ggarrange(feast_rhizo_box_stacked, feast_root_box_stacked, 
+          ncol = 2, nrow = 1, widths = c(1, 1.4),
+          common.legend = TRUE)
+feast_box_all
+ggsave("results/FEAST_results/feast_compiled_boxplot.png", width = 9, height = 8)
+```
+
+### statistics on FEAST results
+
+ANOVAs
+```{r}
+# 16S_rhizo
+feast_glm <- glm(percent ~ Source + Species + Source:Species, data = feast_16S_rhizo)
+# run anova
+feast_anova_16S_rhizo <- car::Anova(feast_glm, test.statistic = "F")
+feast_anova_16S_rhizo
+
+# 16S_root
+feast_glm <- glm(percent ~ Source + Species + Source:Species, data = feast_16S_root)
+# run anova
+feast_anova_16S_root <- car::Anova(feast_glm, test.statistic = "F")
+feast_anova_16S_root
+
+# ITS_rhizo
+feast_glm <- glm(percent ~ Source + Species + Source:Species, data = feast_ITS_rhizo)
+# run anova
+feast_anova_ITS_rhizo <- car::Anova(feast_glm, test.statistic = "F")
+feast_anova_ITS_rhizo
+
+# ITS_root
+feast_glm <- glm(percent ~ Source + Species + Source:Species, data = feast_ITS_root)
+# run anova
+feast_anova_ITS_root <- car::Anova(feast_glm, test.statistic = "F")
+feast_anova_ITS_root
+
+```
+Basically we are seeing significant differences by source but not by species. 
+
+Make the table:
+```{r}
+# Combine anovas
+feast_anova_16S <- feast_anova_16S_rhizo %>%
+  rbind(feast_anova_16S_root)
+feast_anova_ITS <- feast_anova_ITS_rhizo %>%
+  rbind(feast_anova_ITS_root)
+feast_anova_con <- feast_anova_16S %>%
+  cbind(feast_anova_ITS)
+
+# save formatted table
+write.csv(feast_anova_con, file = "results/FEAST_results/feast_anova_raw.csv", 
+          row.names = TRUE)
+
+```
+
+
+# HSD tests
+
+```{r}
+# Tukey HSD
+hsd_Species_feast <- HSD.test(aov(percent ~ Species, data = feast_long), 
+                              "Species", group = T)
+hsd_Source_feast <- HSD.test(aov(percent ~ Source, data = feast_long), 
+                             "Source", group = T)
+hsd_tree_feast <- HSD.test(aov(percent ~ Tree_number, data = feast_long), 
+                           "Tree_number", group = T)
+
+hsd_Species_feast <- hsd_Species_feast$groups
+hsd_Source_feast <- hsd_Source_feast$groups
+hsd_tree_feast <- hsd_tree_feast$groups
+
+# run on data subsets:
+## 16S_rhizo
+hsd_Species_feast <- HSD.test(aov(percent ~ Species, data = feast_16S_rhizo), 
+                              "Species", group = T)
+hsd_Source_feast <- HSD.test(aov(percent ~ Source, data = feast_16S_rhizo), 
+                             "Source", group = T)
+hsd_tree_feast <- HSD.test(aov(percent ~ Tree_number, data = feast_16S_rhizo), 
+                           "Tree_number", group = T)
+
+hsd_Species_feast_16S_rhizo <- hsd_Species_feast$groups
+hsd_Source_feast_16S_rhizo <- hsd_Source_feast$groups
+hsd_tree_feast_16S_rhizo <- hsd_tree_feast$groups
+
+## 16S_root
+hsd_Species_feast <- HSD.test(aov(percent ~ Species, data = feast_16S_root), 
+                              "Species", group = T)
+hsd_Source_feast <- HSD.test(aov(percent ~ Source, data = feast_16S_root), 
+                             "Source", group = T)
+hsd_tree_feast <- HSD.test(aov(percent ~ Tree_number, data = feast_16S_root), 
+                           "Tree_number", group = T)
+
+hsd_Species_feast_16S_root <- hsd_Species_feast$groups
+hsd_Source_feast_16S_root <- hsd_Source_feast$groups
+hsd_tree_feast_16S_root <- hsd_tree_feast$groups
+
+## ITS_rhizo
+hsd_Species_feast <- HSD.test(aov(percent ~ Species, data = feast_ITS_rhizo), 
+                              "Species", group = T)
+hsd_Source_feast <- HSD.test(aov(percent ~ Source, data = feast_ITS_rhizo), 
+                             "Source", group = T)
+hsd_tree_feast <- HSD.test(aov(percent ~ Tree_number, data = feast_ITS_rhizo), 
+                           "Tree_number", group = T)
+
+hsd_Species_feast_ITS_rhizo <- hsd_Species_feast$groups
+hsd_Source_feast_ITS_rhizo <- hsd_Source_feast$groups
+hsd_tree_feast_ITS_rhizo <- hsd_tree_feast$groups
+
+## ITS_root
+hsd_Species_feast <- HSD.test(aov(percent ~ Species, data = feast_ITS_root), 
+                              "Species", group = T)
+hsd_Source_feast <- HSD.test(aov(percent ~ Source, data = feast_ITS_root), 
+                             "Source", group = T)
+hsd_tree_feast <- HSD.test(aov(percent ~ Tree_number, data = feast_ITS_root), 
+                           "Tree_number", group = T)
+
+hsd_Species_feast_ITS_root <- hsd_Species_feast$groups
+hsd_Source_feast_ITS_root <- hsd_Source_feast$groups
+hsd_tree_feast_ITS_root <- hsd_tree_feast$groups
+
+# combine tables
+hsd_sink_combined_16S <- hsd_Species_feast_16S_rhizo %>%
+  rbind(hsd_Source_feast_16S_rhizo) %>%
+  rbind(hsd_tree_feast_16S_rhizo) %>%
+  rbind(hsd_Species_feast_16S_root) %>%
+  rbind(hsd_Source_feast_16S_root) %>%
+  rbind(hsd_tree_feast_16S_root)
+hsd_sink_combined_16S
+hsd_sink_combined_ITS <- hsd_Species_feast_ITS_rhizo %>%
+  rbind(hsd_Source_feast_ITS_rhizo) %>%
+  rbind(hsd_tree_feast_ITS_rhizo) %>%
+  rbind(hsd_Species_feast_ITS_root) %>%
+  rbind(hsd_Source_feast_ITS_root) %>%
+  rbind(hsd_tree_feast_ITS_root)
+hsd_sink_combined_ITS
+
+hsd_feast_combined <- cbind(hsd_sink_combined_16S, hsd_sink_combined_ITS)
+hsd_feast_combined
+```
+All the species and tree numbers have the same value.
+
+Redo? subset by source to do species? And species to do source? Or concat species_source.
+
+```{r}
+# concat species_source
+feast_16S_rhizo_con <- feast_16S_rhizo %>%
+  mutate(species_source = paste0(Species, "_", Source))
+feast_16S_root_con <- feast_16S_root %>%
+  mutate(species_source = paste0(Species, "_", Source))
+feast_ITS_rhizo_con <- feast_ITS_rhizo %>%
+  mutate(species_source = paste0(Species, "_", Source))
+feast_ITS_root_con <- feast_ITS_root %>%
+  mutate(species_source = paste0(Species, "_", Source))
+
+# hsd tests
+hsd_feast <- HSD.test(aov(percent ~ species_source, data = feast_16S_rhizo_con), 
+                              "species_source", group = T)
+hsd_feast_16S_rhizo <- hsd_feast$groups
+hsd_feast <- HSD.test(aov(percent ~ species_source, data = feast_16S_root_con), 
+                              "species_source", group = T)
+hsd_feast_16S_root <- hsd_feast$groups
+hsd_feast <- HSD.test(aov(percent ~ species_source, data = feast_ITS_rhizo_con), 
+                              "species_source", group = T)
+hsd_feast_ITS_rhizo <- hsd_feast$groups
+hsd_feast <- HSD.test(aov(percent ~ species_source, data = feast_ITS_root_con), 
+                              "species_source", group = T)
+hsd_feast_ITS_root <- hsd_feast$groups
+
+# combine
+hsd_16S_combined <- hsd_feast_16S_rhizo %>%
+  rbind(hsd_feast_16S_root)
+hsd_ITS_combined <- hsd_feast_ITS_rhizo %>%
+  rbind(hsd_feast_ITS_root)
+hsd_combined <- hsd_16S_combined %>%
+  cbind(hsd_ITS_combined)
+
+# write file
+write.csv(hsd_combined, file = "results/FEAST_results/feast_hsd_raw.csv", 
+            row.names = TRUE)
+```
+
+
