@@ -9,6 +9,9 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+# notes:
+for this script you will need phylogenetic trees. For this reason I ran on 16S only. I produced the phylogenetic trees and ran the ic.big step in a VM as this is computationally intensive. Filter the data more extensively for local runs.
+
 # install packages
 
 
