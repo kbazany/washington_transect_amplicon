@@ -1,0 +1,485 @@
+---
+title: "5.8_iCAMP_analysis"
+author: "kathryn_bazany"
+date: "2026-04-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# load packages
+
+```{r}
+library("tidyverse")
+library("agricolae")
+library("car")
+library("broom")
+```
+
+
+# load files
+
+```{r}
+full <- read_delim("iCAMP/full_run_from_server/icamp_full_results.csv", delim = ",")
+```
+
+
+# reformat by adding informative columns
+
+```{r}
+full_1 <- full %>%
+  mutate(niche_1 = case_when(
+    str_detect(sample1, "rhizo") ~ "rhizo",
+    str_detect(sample1, "roots") ~ "roots",
+    str_detect(sample1, "soil") ~ "soil"
+         )) %>%
+  mutate(niche_2 = case_when(
+    str_detect(sample2, "rhizo") ~ "rhizo",
+    str_detect(sample2, "roots") ~ "roots",
+    str_detect(sample2, "soil") ~ "soil"
+         )) %>%
+  mutate(site_1 = str_extract(sample1, "^[^_]+")) %>%
+  mutate(site_2 = str_extract(sample2, "^[^_]+")) %>%
+  mutate(niche_niche = paste(niche_1, niche_2, sep = "_")) %>%
+  mutate(site_site = paste(site_1, site_2, sep = "_")) %>%
+  mutate(climate_1 = case_when(
+    str_detect(sample1, "CR1|CR1.5|CR2|CR3") ~ "wet",
+    str_detect(sample1, "CR4|TR4|TR3.5|TR3") ~ "high",
+    str_detect(sample1, "TR2.5|TR2|TR1") ~ "dry"
+  )) %>%
+  mutate(climate_2 = case_when(
+    str_detect(sample2, "CR1|CR1.5|CR2|CR3") ~ "wet",
+    str_detect(sample2, "CR4|TR4|TR3.5|TR3") ~ "high",
+    str_detect(sample2, "TR2.5|TR2|TR1") ~ "dry"
+  )) %>%
+  mutate(climate_climate = paste(climate_1, climate_2, sep = "_"))
+
+full_2 <- full %>%
+  mutate(niche_1 = case_when(
+    str_detect(sample1, "rhizo") ~ "rhizo",
+    str_detect(sample1, "roots") ~ "roots",
+    str_detect(sample1, "soil") ~ "soil"
+         )) %>%
+  mutate(niche_2 = case_when(
+    str_detect(sample2, "rhizo") ~ "rhizo",
+    str_detect(sample2, "roots") ~ "roots",
+    str_detect(sample2, "soil") ~ "soil"
+         )) %>%
+  mutate(site_1 = str_extract(sample1, "^[^_]+")) %>%
+  mutate(site_2 = str_extract(sample2, "^[^_]+")) %>%
+  mutate(niche_niche = paste(niche_1, niche_2, sep = "_")) %>%
+  mutate(site_site = paste(site_1, site_2, sep = "_")) %>%
+  mutate(climate_1 = case_when(
+    str_detect(sample1, "CR1|CR1.5|CR2|CR3") ~ "wet",
+    str_detect(sample1, "CR4|TR4|TR3.5|TR3") ~ "high",
+    str_detect(sample1, "TR2.5|TR2|TR1") ~ "dry"
+  )) %>%
+  mutate(climate_2 = case_when(
+    str_detect(sample2, "CR1|CR1.5|CR2|CR3") ~ "wet",
+    str_detect(sample2, "CR4|TR4|TR3.5|TR3") ~ "high",
+    str_detect(sample2, "TR2.5|TR2|TR1") ~ "dry"
+  )) %>%
+  mutate(climate_climate = paste(climate_1, climate_2, sep = "_")) %>%
+  mutate(Selection = Heterogeneous.Selection + Homogeneous.Selection) %>%
+  mutate(Stochasticity = Heterogeneous.Selection + Dispersal.Limitation + Drift.and.Others)
+
+```
+
+
+# Try filtering to only within niche, within site 
+
+```{r}
+clim_filt <- full_1 %>%
+  filter(niche_niche == "soil_soil" | 
+           niche_niche == "rhizo_rhizo" | 
+           niche_niche == "roots_roots") %>%
+  filter(climate_climate == "wet_wet" |
+           climate_climate == "dry_dry" |
+           climate_climate == "high_high"
+         ) %>%
+  mutate(niche = niche_1) %>%
+  mutate(climate = climate_1) %>%
+  select(-c(niche_1, niche_2, niche_niche, 
+            site_1, site_2, 
+            climate_1, climate_2, climate_climate,
+            ...1))
+
+clim_filt_2 <- full_2 %>%
+  filter(niche_niche == "soil_soil" | 
+           niche_niche == "rhizo_rhizo" | 
+           niche_niche == "roots_roots") %>%
+  filter(climate_climate == "wet_wet" |
+           climate_climate == "dry_dry" |
+           climate_climate == "high_high"
+         ) %>%
+  mutate(niche = niche_1) %>%
+  mutate(climate = climate_1) %>%
+  select(-c(niche_1, niche_2, niche_niche, 
+            site_1, site_2, 
+            climate_1, climate_2, climate_climate,
+            ...1))
+```
+
+# filtering within climate if site filtering doesn't leave enough
+
+```{r}
+site_filt <- full_1 %>%
+  filter(niche_niche == "soil_soil" | 
+           niche_niche == "rhizo_rhizo" | 
+           niche_niche == "roots_roots") %>%
+  filter(site_site == "CR1_CR1" |
+           site_site == "CR1.5_CR1.5" |
+           site_site == "CR2_CR2" |
+           site_site == "CR3_CR3" |
+           site_site == "CR4_CR4" |
+           site_site == "TR4_TR4" |
+           site_site == "TR3.5_TR3.5" |
+           site_site == "TR3_TR3" |
+           site_site == "TR2.5_TR2.5" |
+           site_site == "TR2_TR2" |
+           site_site == "TR1_TR1") %>%
+  mutate(niche = niche_1) %>%
+  mutate(site = site_1) %>%
+  mutate(climate = climate_1) %>%
+  select(-c(niche_1, niche_2, niche_niche, 
+            site_1, site_2, site_site, 
+            climate_1, climate_2, climate_climate,
+            ...1))
+
+
+site_filt_2 <- full_2 %>%
+  filter(niche_niche == "soil_soil" | 
+           niche_niche == "rhizo_rhizo" | 
+           niche_niche == "roots_roots") %>%
+  filter(site_site == "CR1_CR1" |
+           site_site == "CR1.5_CR1.5" |
+           site_site == "CR2_CR2" |
+           site_site == "CR3_CR3" |
+           site_site == "CR4_CR4" |
+           site_site == "TR4_TR4" |
+           site_site == "TR3.5_TR3.5" |
+           site_site == "TR3_TR3" |
+           site_site == "TR2.5_TR2.5" |
+           site_site == "TR2_TR2" |
+           site_site == "TR1_TR1") %>%
+  mutate(niche = niche_1) %>%
+  mutate(site = site_1) %>%
+  mutate(climate = climate_1) %>%
+  select(-c(niche_1, niche_2, niche_niche, 
+            site_1, site_2, site_site, 
+            climate_1, climate_2, climate_climate,
+            ...1))
+```
+
+# put into long format for easier analysis
+
+```{r}
+clim_long <- clim_filt %>%
+  pivot_longer(cols = c(Homogeneous.Selection, Heterogeneous.Selection, 
+                        Dispersal.Limitation, Homogenizing.Dispersal, 
+                        Drift.and.Others), names_to = "Category", 
+               values_to = "Percent_Turnover")
+
+site_long <- site_filt %>%
+  pivot_longer(cols = c(Homogeneous.Selection, Heterogeneous.Selection, 
+                        Dispersal.Limitation, Homogenizing.Dispersal, 
+                        Drift.and.Others), names_to = "Category", 
+               values_to = "Percent_Turnover")
+
+
+clim_long_2 <- clim_filt_2 %>%
+  pivot_longer(cols = c(Selection, Stochasticity), names_to = "Category", 
+               values_to = "Percent_Turnover")
+
+site_long_2 <- site_filt_2 %>%
+  pivot_longer(cols = c(Selection, Stochasticity), names_to = "Category", 
+               values_to = "Percent_Turnover")
+
+```
+
+# make some boxplots 
+
+```{r}
+clim_reor <- clim_long
+clim_reor$niche <- factor(clim_reor$niche, levels = c("soil", "rhizo", "roots"))
+clim_reor$Category <- factor(clim_reor$Category, levels = c("Homogeneous.Selection", 
+                                                            "Heterogeneous.Selection", 
+                                                            "Homogenizing.Dispersal", 
+                                                            "Dispersal.Limitation", 
+                                                            "Drift.and.Others"))
+
+site_box <- ggplot(clim_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#7B6D8D", "#8499B1", "#A5C4D4", "#3E5641")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate.png", width = 14, height = 5)
+```
+
+```{r}
+site_reor <- site_long
+site_reor$niche <- factor(site_reor$niche, levels = c("soil", "rhizo", "roots"))
+site_reor$Category <- factor(site_reor$Category, levels = c("Homogeneous.Selection", 
+                                                            "Heterogeneous.Selection", 
+                                                            "Homogenizing.Dispersal", 
+                                                            "Dispersal.Limitation", 
+                                                            "Drift.and.Others"))
+
+site_box <- ggplot(site_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#7B6D8D", "#8499B1", "#A5C4D4", "#3E5641")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate_site_comp.png", width = 14, height = 5)
+```
+
+
+# make a combined selection vs. stochasticity plot? 
+
+```{r}
+clim_reor <- clim_long_2
+clim_reor$niche <- factor(clim_reor$niche, levels = c("soil", "rhizo", "roots"))
+clim_reor$Category <- factor(clim_reor$Category, levels = c("Selection", "Stochasticity"))
+
+site_box <- ggplot(clim_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#8499B1")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate_selection.png", width = 8, height = 5)
+
+
+clim_reor <- site_long_2
+clim_reor$niche <- factor(clim_reor$niche, levels = c("soil", "rhizo", "roots"))
+clim_reor$Category <- factor(clim_reor$Category, levels = c("Selection", "Stochasticity"))
+
+site_box <- ggplot(clim_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#8499B1")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate_persite_selection.png", width = 8, height = 5)
+```
+
+
+# significance tests?
+
+# significance labels? 
+
+# Producing the main plot with HSD labels
+
+```{r}
+# concat variables
+hsd <- clim_long %>%
+  mutate(category_niche_climate = paste0(Category, "_", niche, "_", climate))
+# run hsd test
+hsd_test <- HSD.test(aov(Percent_Turnover ~ category_niche_climate, data = hsd), 
+                          "category_niche_climate", group = T)
+# extract groups
+hsd_groups <- hsd_test$groups
+
+# reorder (ensure matching keys for the join)
+hsd_groups_reor <- hsd_groups %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "category_niche_climate")  # turn rownames into a column
+# Ensure "sample_species" values match between both dataframes
+hsd <- hsd %>%
+  mutate(category_niche_climate = as.character(category_niche_climate))  
+hsd_groups_reor <- hsd_groups_reor %>%
+  mutate(category_niche_climate = as.character(category_niche_climate)) 
+hsd_groups_clim <- hsd_groups_reor # save object
+
+# Merge the dataframes
+hsd_with_groups <- hsd %>%
+  right_join(hsd_groups_reor, by = "category_niche_climate")  # perform the join
+## the percents don't line up .x is exact values, .y is means
+
+# relabel
+hsd_df <- hsd_with_groups %>%
+  rename(Percent_Turnover = Percent_Turnover.x) %>%
+  rename(Average_Percent_Turnover = Percent_Turnover.y)
+
+
+# Figure
+clim_reor <- hsd_df
+clim_reor$niche <- factor(clim_reor$niche, levels = c("soil", "rhizo", "roots"))
+clim_reor$Category <- factor(clim_reor$Category, levels = c("Homogeneous.Selection", 
+                                                            "Heterogeneous.Selection", 
+                                                            "Homogenizing.Dispersal", 
+                                                            "Dispersal.Limitation", 
+                                                            "Drift.and.Others"))
+clim_reor$climate <- factor(clim_reor$climate, levels = c("wet", "high", "dry"))
+
+site_box <- ggplot(clim_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#7B6D8D", "#8499B1", "#A5C4D4", "#3E5641")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black")) + 
+  geom_text(
+    data = clim_reor, 
+    aes(x = niche, y = (max(Percent_Turnover) + .01), label = groups), 
+    position = position_dodge(width = 0.75), 
+    size = 4, 
+    vjust = 0,
+    show.legend = FALSE)
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate_hsdlabels.png", width = 22, height = 5)
+
+
+```
+
+
+# hsd with just selection vs stochasticity
+
+```{r}
+# concat variables
+hsd <- clim_long_2 %>%
+  mutate(category_niche_climate = paste0(Category, "_", niche, "_", climate))
+# run hsd test
+hsd_test <- HSD.test(aov(Percent_Turnover ~ category_niche_climate, data = hsd), 
+                          "category_niche_climate", group = T)
+# extract groups
+hsd_groups <- hsd_test$groups
+
+# reorder (ensure matching keys for the join)
+hsd_groups_reor <- hsd_groups %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "category_niche_climate")  # turn rownames into a column
+# Ensure "sample_species" values match between both dataframes
+hsd <- hsd %>%
+  mutate(category_niche_climate = as.character(category_niche_climate))  
+hsd_groups_reor <- hsd_groups_reor %>%
+  mutate(category_niche_climate = as.character(category_niche_climate)) 
+hsd_groups_clim <- hsd_groups_reor # save object
+
+# Merge the dataframes
+hsd_with_groups <- hsd %>%
+  right_join(hsd_groups_reor, by = "category_niche_climate")  # perform the join
+## the percents don't line up .x is exact values, .y is means
+
+# relabel
+hsd_df <- hsd_with_groups %>%
+  rename(Percent_Turnover = Percent_Turnover.x) %>%
+  rename(Average_Percent_Turnover = Percent_Turnover.y)
+
+
+
+clim_reor <- hsd_df
+clim_reor$niche <- factor(clim_reor$niche, levels = c("soil", "rhizo", "roots"))
+clim_reor$Category <- factor(clim_reor$Category, levels = c("Selection", "Stochasticity"))
+clim_reor$climate <- factor(clim_reor$climate, levels = c("wet", "high", "dry"))
+
+site_box <- ggplot(clim_reor, aes(x = niche, color = Category, y = Percent_Turnover)) + 
+  geom_boxplot() + geom_jitter(position = position_dodge(width = .75), size = 1) +
+  scale_color_manual(values = c("#593F62", "#8499B1")) + 
+  xlab("Category") + ylab("Percent Turnover") + 
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 16),
+    text = element_text(size = 16),
+    legend.position = "left",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black")) + 
+  geom_text(
+    data = clim_reor, 
+    aes(x = niche, y = (max(Percent_Turnover) + .01), label = groups), 
+    position = position_dodge(width = 0.75), 
+    size = 4, 
+    vjust = 0,
+    show.legend = FALSE)
+site_box
+
+site_box + facet_wrap(vars(climate))
+
+ggsave("results/iCAMP_results/icamp_box_climate_selection_hsdlabels.png", width = 9, height = 5)
+```
+
+
+# glms 
+
+```{r}
+# run glms
+full_glm <- glm(Percent_Turnover ~ Category * niche * climate, data = clim_long)
+# run anova
+full_anova <- car::Anova(full_glm, test.statistic = "F")
+full_anova
+# save
+full_anova_df <- tidy(full_anova)
+# write
+write.csv(full_anova_df, file = "results/iCAMP_results/glm_all_categories.csv", row.names = FALSE)
+
+# run glms
+selection_glm <- glm(Percent_Turnover ~ Category * niche * climate, data = clim_long_2)
+# run anova
+selection_anova <- car::Anova(selection_glm, test.statistic = "F")
+selection_anova
+# save
+selection_anova_df <- tidy(selection_anova)
+# write
+write.csv(selection_anova_df, file = "results/iCAMP_results/glm_selection.csv", row.names = FALSE)
+```
+
+
