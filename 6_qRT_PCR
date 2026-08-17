@@ -1,0 +1,1903 @@
+---
+title: "5.8_qrtpcr"
+author: "kathryn_bazany"
+date: "2026-05-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load packages
+
+```{r}
+library(readxl)
+library(dplyr)
+library(purrr)
+library(tidyverse)
+library(broom)
+library(vegan)
+```
+
+Load data tables
+
+```{r}
+# set path
+path <- "QRT_PCR.xlsx"
+
+# read in sheets
+sheets <- c("100_102", "106_107", "111(fail)_113", "115_122", "131_142", 
+    "146_149", "152_153", "154_156", 
+    "1702_1703", "1704_1705", "1706_1708", "1710_1713", "163_1701", "143_159", 
+    "144_162", "128_129", "105_111")
+
+df <- map_dfr(
+  sheets,
+  \(sh) read_excel(
+    path,
+    sheet = sh,
+    na = c("", "NA", "NaN", "#DIV/0!", "UNDETERMINED")
+  ) |>
+    mutate(
+      Sample = as.character(Sample),   # force consistent type
+      sheet  = sh,
+      .before = 1
+    )
+)
+
+sheets
+df
+
+# clean up
+identical(df$Well...2, df$Well...7)
+df <- df %>%
+  select(-`Well...7`) %>%
+  rename(Well = `Well...2`)
+```
+
+Delete rows with standard primers and rows with no sample.
+
+```{r}
+df_trim <- df %>%
+  filter(Sample != "NA") %>%
+  filter(Primer != "18S") %>%
+  filter(Primer != "UBQ10B") %>%
+  dplyr::rename(tree = Sample)
+df_trim
+```
+
+# adding in the reruns
+
+```{r}
+# set path
+path <- "QRTPCR_RERUN_NEEDED.xlsx"
+
+# read in sheets
+sheets_2 <- c("RE_1", "RE_2", "RE_3", "RE_4", "RE_5", "RE_6", "RE_7")
+
+df_2 <- map_dfr(
+  sheets_2,
+  \(sh) read_excel(
+    path,
+    sheet = sh,
+    na = c("", "NA", "NaN", "#DIV/0!", "UNDETERMINED")
+  ) |>
+    mutate(
+      Sample = as.character(Sample),   # force consistent type
+      sheet  = sh,
+      .before = 1
+    )
+)
+
+sheets_2
+df_2
+
+df_trim_2 <- df_2 %>%
+  filter(Sample != "NA") %>%
+  filter(Primer != "18S") %>%
+  filter(Primer != "UBQ10B") %>%
+  dplyr::rename(tree = Sample) %>%
+  select(-`PLATE`) %>%
+  rename(`Cq original` = Cq)
+
+df_trim_2
+```
+
+
+Combine the original runs with the reruns (df and df_2)
+
+```{r}
+df_com <- df_trim %>%
+  bind_rows(df_trim_2)
+df_com
+```
+
+
+Now need to align metadata so that we know what tree is from what site and climate.
+
+```{r}
+meta <- read_delim("full_metadata.csv", delim = ",")
+meta_soil <- meta %>%
+  filter(niche == "soil") %>%
+  mutate(tree = as.character(tree))
+
+# align
+qpcr <- df_com %>%
+  right_join(meta_soil, by = "tree")
+
+# add climate classes
+apcr <- qpcr %>%
+  mutate(climate = case_when(
+    site == "CR1" ~ "wet",
+    site == "CR1.5" ~ "wet", 
+    site == "CR2" ~ "wet",
+    site == "CR3" ~ "wet",
+    site == "CR4" ~ "high",
+    site == "TR4" ~ "high",
+    site == "TR3.5" ~ "high",
+    site == "TR3" ~ "high",
+    site == "TR2.5" ~ "dry",
+    site == "TR2" ~ "dry",
+    site == "TR1" ~ "dry"
+    ))
+
+# clean it up (for the datasheet without cleanups)
+# qpcr_clean <- apcr %>%
+#    select(-c(16:20, 23:86))
+# for the datasheet with cleanups
+# qpcr_clean <- apcr %>%
+#  select(-c(22:84))
+# for the datasheet with min cleanups
+# qpcr_clean <- apcr %>%
+#   select(-c(23:85))
+
+# for new sample sheet
+qpcr_clean <- apcr %>%
+  dplyr::select(-c(21:80))
+
+# checking for major outliers
+qpcr_outliers <- qpcr_clean %>%
+  filter(`Cq outliers removed` < 13)
+
+# plate 154-156 noted bad evaporation issues and most of the samples from that plate got rerun. This one probably evaporated but slipped by somehow so cut those
+# 1702_1703 was ran on quantstudiopro and the note says first 2-3 rows aren't reading. So cut those too
+# 1706_1708 was also run on quantstudiopro and in the first row... cut it! 
+
+# filtering outliers that were likely machine errors
+qpcr_no_outliers <- qpcr_clean %>%
+  filter(`Cq outliers removed` > 13) %>%
+  filter(`std dev` != "NA")
+
+# ok it's cutting all the nas. Let's do an anti_join instead
+qpcr_no_outliers <- qpcr_clean %>%
+  anti_join(qpcr_outliers)
+
+dim(qpcr_clean)
+dim(qpcr_no_outliers)
+
+qpcr_clean <- qpcr_no_outliers 
+```
+
+# significance test (this one is for a regular, welch t-test but I'm using student because that's what I'm seeing in the literature.)
+
+library(dplyr)
+library(tidyr)
+
+# Helper: safe t-test p-value (returns NA instead of error)
+safe_t_p <- function(x, g, g1 = "high", g0 = "wet") {
+  x1 <- x[g == g1]; x1 <- x1[is.finite(x1)]
+  x0 <- x[g == g0]; x0 <- x0[is.finite(x0)]
+  if (length(x1) < 2 || length(x0) < 2) return(NA_real_)
+  tryCatch(t.test(x1, x0)$p.value, error = function(e) NA_real_)
+}
+
+# 1) Choose which Cq column to use for technical replicate averaging
+# Prefer "Cq outliers removed", else fall back to "Cq original", else "Cq"
+qpcr2 <- qpcr_clean %>%
+ # mutate(Cq_use = coalesce(`Cq outliers removed`, `Cq original`, Cq)) %>% # running on outliers removed for now
+  mutate(Cq_use = `Cq outliers removed`) %>%
+  filter(climate %in% c("wet", "high", "dry"))
+
+# 2) Collapse technical replicates to one row per sample_id x Primer
+target_by_sample <- qpcr2 %>%
+  filter(!is.na(sample_id), !is.na(Primer)) %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    n_tech = sum(is.finite(Cq_use)),
+    Cq_target = mean(Cq_use, na.rm = TRUE),
+    sd_target = sd(Cq_use, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 3) Get one UBQ10B and 18S Cq per sample_id
+# (Your table has UBQ10B and 18S as columns; we assume they are constant within sample_id.)
+refs_by_sample <- qpcr2 %>%
+  filter(!is.na(sample_id)) %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_UBQ10B = mean(UBQ10B, na.rm = TRUE),
+    Cq_18S    = mean(`18S`,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) Join targets + refs and compute ΔCq using the mean of UBQ10B and 18S
+analysis_dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id", "site", "climate")) %>%
+  mutate(
+    Cq_ref_mean = rowMeans(cbind(Cq_UBQ10B, Cq_18S), na.rm = TRUE),
+    dCq_ref_mean = Cq_target - Cq_ref_mean
+  )
+
+# 5) Per-Primer significance tests: high vs wet and dry vs wet
+ttest_results <- analysis_dat %>%
+  group_by(Primer) %>%
+  summarise(
+    n_wet  = sum(climate == "wet"  & is.finite(dCq_ref_mean)),
+    n_high = sum(climate == "high" & is.finite(dCq_ref_mean)),
+    n_dry  = sum(climate == "dry"  & is.finite(dCq_ref_mean)),
+
+    mean_wet  = mean(dCq_ref_mean[climate == "wet"],  na.rm = TRUE),
+    mean_high = mean(dCq_ref_mean[climate == "high"], na.rm = TRUE),
+    mean_dry  = mean(dCq_ref_mean[climate == "dry"],  na.rm = TRUE),
+
+    diff_high_minus_wet = mean_high - mean_wet,
+    diff_dry_minus_wet  = mean_dry  - mean_wet,
+
+    p_high = safe_t_p(dCq_ref_mean, climate, "high", "wet"),
+    p_dry  = safe_t_p(dCq_ref_mean, climate, "dry",  "wet"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_high_adj = p.adjust(p_high, method = "BH"),
+    p_dry_adj  = p.adjust(p_dry,  method = "BH")
+  )
+
+ttest_results
+
+ttest_results_table <- ttest_results %>%
+  mutate(n_total = (n_wet + n_high + n_dry))
+
+write_delim(ttest_results_table, "/Users/8qq/washington_transect/results/qRT_PCR_ttest_table.csv", delim = ",")
+
+
+
+
+Because a lot of the papers used student t-tests I will try that too:
+
+```{r}
+# Helper: safe t-test p-value (returns NA instead of error)
+safe_t_p <- function(x, g, g1 = "high", g0 = "wet") {
+  x1 <- x[g == g1]; x1 <- x1[is.finite(x1)]
+  x0 <- x[g == g0]; x0 <- x0[is.finite(x0)]
+  if (length(x1) < 2 || length(x0) < 2) return(NA_real_)
+  tryCatch(t.test(x1, x0, var.equal = TRUE)$p.value, error = function(e) NA_real_)
+}
+
+# 1) Choose which Cq column to use for technical replicate averaging
+# Prefer "Cq outliers removed", else fall back to "Cq original", else "Cq"
+qpcr2 <- qpcr_clean %>%
+ # mutate(Cq_use = coalesce(`Cq outliers removed`, `Cq original`, Cq)) %>% # running on outliers removed for now
+  mutate(Cq_use = `Cq outliers removed`) %>%
+  filter(climate %in% c("wet", "high", "dry"))
+
+# 2) Collapse technical replicates to one row per sample_id x Primer
+target_by_sample <- qpcr2 %>%
+  filter(!is.na(sample_id), !is.na(Primer)) %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    n_tech = sum(is.finite(Cq_use)),
+    Cq_target = mean(Cq_use, na.rm = TRUE),
+    sd_target = sd(Cq_use, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 3) Get one UBQ10B and 18S Cq per sample_id
+# (Your table has UBQ10B and 18S as columns; we assume they are constant within sample_id.)
+refs_by_sample <- qpcr2 %>%
+  filter(!is.na(sample_id)) %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_UBQ10B = mean(UBQ10B, na.rm = TRUE),
+    Cq_18S    = mean(`18S`,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) Join targets + refs and compute ΔCq using the mean of UBQ10B and 18S
+analysis_dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id", "site", "climate")) %>%
+  mutate(
+    Cq_ref_mean = rowMeans(cbind(Cq_UBQ10B, Cq_18S), na.rm = TRUE),
+    dCq_ref_mean = Cq_target - Cq_ref_mean
+  )
+
+# filter out where there is no standard dev
+analysis_dat_filt <- analysis_dat %>%
+  filter(Cq_target > 13) %>%
+  filter(sd_target != "NaN") %>%
+  filter(sd_target < .5)
+
+dim(analysis_dat)
+dim(analysis_dat_filt)
+
+analysis_dat <- analysis_dat_filt
+
+# 5) Per-Primer significance tests: high vs wet and dry vs wet
+student_ttest_results <- analysis_dat %>%
+  group_by(Primer) %>%
+  summarise(
+    n_wet  = sum(climate == "wet"  & is.finite(dCq_ref_mean)),
+    n_high = sum(climate == "high" & is.finite(dCq_ref_mean)),
+    n_dry  = sum(climate == "dry"  & is.finite(dCq_ref_mean)),
+
+    mean_wet  = mean(dCq_ref_mean[climate == "wet"],  na.rm = TRUE),
+    mean_high = mean(dCq_ref_mean[climate == "high"], na.rm = TRUE),
+    mean_dry  = mean(dCq_ref_mean[climate == "dry"],  na.rm = TRUE),
+
+    diff_high_minus_wet = mean_high - mean_wet,
+    diff_dry_minus_wet  = mean_dry  - mean_wet,
+
+    p_high = safe_t_p(dCq_ref_mean, climate, "high", "wet"),
+    p_dry  = safe_t_p(dCq_ref_mean, climate, "dry",  "wet"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    p_high_adj = p.adjust(p_high, method = "BH"),
+    p_dry_adj  = p.adjust(p_dry,  method = "BH")
+  )
+
+student_ttest_results
+
+student_ttest_results_table <- student_ttest_results %>%
+  mutate(n_total = (n_wet + n_high + n_dry))
+
+write_delim(student_ttest_results_table, "/Users/8qq/washington_transect/results/qRT_PCR_student_ttest_table_outlier_correction.csv", delim = ",")
+```
+
+
+
+
+Think about the analysis... use CR1 as the control? or wet as the control for high and dry? 
+
+First go by climate. Wet vs. high and wet vs. dry
+Fold change = 2^(experimental sample - control sample)
+
+## wet as a standard, by climate
+
+```{r}
+# 1) Collapse technical replicates (rows) to one row per sample_id x Primer
+#    using your already-computed "Average Cq" and "std dev".
+target_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    Cq_target = mean(`Average Cq`, na.rm = TRUE),
+    sd_target = mean(`std dev`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# If UBQ10B and 18S are constant within sample_id, pull one value per sample_id.
+refs_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_UBQ10B = mean(UBQ10B, na.rm = TRUE),
+    Cq_18S    = mean(`18S`,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id","site","climate")) %>%
+  mutate(
+    dCq_UBQ10B = Cq_target - Cq_UBQ10B,
+    dCq_18S    = Cq_target - Cq_18S,
+    Cq_ref_mean = rowMeans(cbind(Cq_UBQ10B, Cq_18S), na.rm = TRUE),
+    dCq_ref_mean = Cq_target - Cq_ref_mean
+  )
+
+# filter out low reps and any where there is no standard deviation or very high sd 
+datfilt <- dat %>%
+  filter(Cq_target > 13) %>%
+  filter(sd_target != "NaN") %>%
+  filter(sd_target < .5)
+
+dim(datfilt)
+dim(dat)
+
+dat <- datfilt
+
+# 2) Compute the wet-climate calibrator per Primer (control mean ΔCq)
+calibrator <- dat %>%
+  filter(climate == "wet") %>%
+  group_by(Primer) %>%
+  summarise(
+    cal_dCq_UBQ10B   = mean(dCq_UBQ10B,   na.rm = TRUE),
+    cal_dCq_18S      = mean(dCq_18S,      na.rm = TRUE),
+    cal_dCq_ref_mean = mean(dCq_ref_mean, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 3) ΔΔCq and fold-change vs wet
+results <- dat %>%
+  left_join(calibrator, by = "Primer") %>%
+  mutate(
+    ddCq_UBQ10B   = dCq_UBQ10B   - cal_dCq_UBQ10B,
+    ddCq_18S      = dCq_18S      - cal_dCq_18S,
+    ddCq_ref_mean = dCq_ref_mean - cal_dCq_ref_mean,
+
+    FC_UBQ10B   = 2^(-ddCq_UBQ10B),
+    FC_18S      = 2^(-ddCq_18S),
+    FC_ref_mean = 2^(-ddCq_ref_mean)
+  )
+
+results %>% dplyr::select(sample_id, climate, Primer, starts_with("dCq"), starts_with("ddCq"), starts_with("FC"))
+
+
+results %>%
+  filter(climate %in% c("wet","high","dry")) %>%
+  group_by(Primer, climate) %>%
+  summarise(
+    mean_log2FC = mean(log2(FC_ref_mean), na.rm = TRUE),
+    sd_log2FC   = sd(log2(FC_ref_mean), na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    mean_FC = 2^(mean_log2FC)
+  )
+
+```
+
+
+
+### Figures ###
+
+
+FC_ref_mean = 1 means it's the same as the wet treatment "control"
+> 1 means upregulated compared to "control"
+< 1 means downregulated compared to "control"
+
+```{r}
+plot_df <- results %>%
+  mutate(log2FC = log2(FC_ref_mean)) %>% # or: log2FC = -ddCq_ref_mean
+  mutate(Primer = fct_relevel(Primer, "DL417OC8", "EFRA", "EFRB", "ERF1A", 
+                              "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B",
+                              "WRKYB", "P450", "GSTU25", "HSR201")) %>%
+  mutate(Primer = recode(Primer, "ORAS9A" = "ORA59A")) %>%
+  mutate(Primer = recode(Primer, "ORAS9B" = "ORA59B")) %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+  
+ggplot(plot_df, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+
+ggsave("qrtpcr_results/by_climate.png", width = 8, height = 5)
+```
+
+# adding a banner for pathway
+
+```{r}
+plot_df <- plot_df %>%
+  mutate(
+    pathway = case_when(
+      Primer %in% c("DL417OC8", "EFRA", "EFRB", "ERF1A") ~ "Ethylene Pathway",
+      Primer %in% c("JAZ8B", "JAZ6", "ORA59A", "ORA59B") ~ "Jasmonic Acid Pathway",
+      Primer %in% c("WRKYB") ~ "Salicylic Acid Pathway",
+      TRUE ~ "Stress / Detox"
+    ),
+    pathway = factor(
+      pathway,
+      levels = c("Ethylene Pathway", "Jasmonic Acid Pathway", "Salicylic Acid Pathway", "Stress / Detox")
+    )
+  )
+
+library("ggh4x")
+
+ggplot(plot_df, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+  geom_jitter(position = position_dodge(width = 0.75), size = 1.5, alpha = 0.3) +
+  scale_color_manual(values = c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = 0.5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = 0.8) +
+  facet_nested_wrap(
+    vars(pathway, Primer),
+    ncol = 4,
+    nrow = 3,
+    scales = "free_y"
+  ) +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black")
+  )
+
+
+ggsave("qrtpcr_results/by_climate_with_pathway.png", width = 10, height = 8)
+```
+
+## Microbial Community Affects
+
+# next I want to see if host stress response correlates with the microbial communities (ideally this will be more pronounced in the roots and rhizosphere than bulk soil)
+
+```{r}
+head(results)
+# put into wider format so that each primer has it's own column
+results_wide <- results %>%
+  mutate(log2FC = -(ddCq_ref_mean)) %>%
+  select(sample_id, site, climate, log2FC, Primer) %>%
+  pivot_wider(names_from = Primer, values_from = log2FC) %>%
+  mutate(tree = str_extract(sample_id, "(?<=_)[^_]+(?=_)"))
+head(results_wide)
+```
+
+
+# try 16S first
+
+# Load files
+
+```{r}
+setwd("/Users/8qq/washington_transect/")
+tab <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+```{r}
+# transform to replace < with 0 in relevant variables
+x_clean <- x 
+
+# select numerical columns in metadata from the combined table x
+cols <- c(6:8, 12:20, 22:68)
+# scale the metadata 
+x_scaled <- x_clean %>%
+  mutate(across(all_of(names(x_clean)[cols]), ~ as.numeric(scale(.x))))
+
+x <- x_scaled
+```
+
+# standardization of the numeric metadata
+
+```{r}
+# transform to replace < with 0 in relevant variables
+x_clean <- x 
+
+# select numerical columns in metadata from the combined table x
+cols <- c(6:8, 12:20, 22:68)
+# scale the metadata 
+x_scaled <- x_clean %>%
+  mutate(across(all_of(names(x_clean)[cols]), ~ as.numeric(scale(.x))))
+
+x <- x_scaled
+```
+
+# align with the qRT-PCR results
+
+```{r}
+# make x tree a character
+x <- x %>%
+  mutate(tree = as.character(tree))
+# combine results_wide with x by tree number
+comb <- results_wide %>%
+  right_join(x, by = "tree")
+# check dimensions
+dim(comb)
+dim(x)
+# genes from 4:15
+# asvs are 84:33000
+ncol(x)
+x <- comb
+```
+
+# trying to filter to roots only 
+
+```{r}
+roots <- x %>% 
+  filter(niche == "roots")
+dim(x)
+dim(roots)
+x <- roots
+```
+
+
+# lms to see if any of this lines up
+
+```{r}
+x_fit <- x %>%
+  mutate(DL417OC8 = na_if(DL417OC8, NaN)) %>%   # NaN -> NA
+  filter(!is.na(DL417OC8))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ DL417OC8, data = x_fit, by = "terms")
+lm1 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(EFRA = na_if(EFRA, NaN)) %>%   # NaN -> NA
+  filter(!is.na(EFRA))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ EFRA, data = x_fit, by = "terms")
+lm2 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(EFRB = na_if(EFRB, NaN)) %>%   # NaN -> NA
+  filter(!is.na(EFRB))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ EFRB, data = x_fit, by = "terms")
+lm3 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ERF1A = na_if(ERF1A, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ERF1A))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ERF1A, data = x_fit, by = "terms")
+lm4 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(GSTU25 = na_if(GSTU25, NaN)) %>%   # NaN -> NA
+  filter(!is.na(GSTU25))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ GSTU25, data = x_fit, by = "terms")
+lm5 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(HSR201 = na_if(HSR201, NaN)) %>%   # NaN -> NA
+  filter(!is.na(HSR201))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ HSR201, data = x_fit, by = "terms")
+lm6 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(JAZ6 = na_if(JAZ6, NaN)) %>%   # NaN -> NA
+  filter(!is.na(JAZ6))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ JAZ6, data = x_fit, by = "terms")
+lm7 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(JAZ8B = na_if(JAZ8B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(JAZ8B))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ JAZ8B, data = x_fit, by = "terms")
+lm8 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ORAS9A = na_if(ORAS9A, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9A))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ORAS9A, data = x_fit, by = "terms")
+lm9 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ORAS9B = na_if(ORAS9B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9B))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ORAS9B, data = x_fit, by = "terms")
+lm10 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(P450 = na_if(P450, NaN)) %>%   # NaN -> NA
+  filter(!is.na(P450))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ P450, data = x_fit, by = "terms")
+lm11 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(WRKYB = na_if(WRKYB, NaN)) %>%   # NaN -> NA
+  filter(!is.na(WRKYB))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ WRKYB, data = x_fit, by = "terms")
+lm12 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10, lm11, lm12)
+lm_full_table_16S <- lm_full_table %>%
+  arrange(desc(R2))
+lm_full_table_16S
+write_delim(lm_full_table_16S, "/Users/8qq/washington_transect/results/qrtpcr_full_table_16S_roots.csv", delim = ",")
+
+```
+
+# nothing all that exciting so I don't really see a need to go further. Marginal effects of ORA59B. 
+
+# for the roots alone, ORA59B is significant
+
+# Testing correlations
+
+```{r}
+# set env_vars as qRT-PCR primers
+env_vars <- c(
+  "DL417OC8", "EFRA", "EFRB", "ERF1A", 
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", 
+  "WRKYB", "GSTU25", "HSR201", "P450"
+)
+
+pairwise_cor_tests <- combn(env_vars, 2, simplify = FALSE) %>%
+  purrr::map_dfr(\(vars) {
+    test <- cor.test(x_fit[[vars[1]]], x_fit[[vars[2]]], method = "pearson")
+    tibble(
+      var1 = vars[1],
+      var2 = vars[2],
+      r = unname(test$estimate),
+      p_value = test$p.value
+    )
+  }) %>%
+  mutate(abs_r = abs(r)) %>%
+  arrange(desc(abs_r))
+
+pairwise_cor_tests
+
+```
+
+highly correlated, no surprise there
+
+# permanova
+
+```{r}
+
+## ----------------------------
+## Variables
+## ----------------------------
+meta_cols <- 1:83
+asv_cols  <- 84:ncol(x)
+
+env_vars_glm <- c("DL417OC8", "EFRA", "EFRB", "ERF1A", 
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", 
+  "WRKYB", "GSTU25", "HSR201", "P450")
+
+## ----------------------------
+## Clean data for adonis2
+## - Convert NaN -> NA
+## - Keep only rows complete for the selected qRT-PCR variables
+## - Do NOT scale predictors here
+## ----------------------------
+x_fit <- x %>%
+  mutate(across(all_of(env_vars_glm), ~ na_if(., NaN))) %>%
+  filter(if_all(all_of(env_vars_glm), ~ !is.na(.)))
+
+## ----------------------------
+## Correlation check among qRT-PCR predictors
+## This helps decide whether some variables are too collinear
+## to include together in the same model
+## ----------------------------
+qrtpcr_cor <- x_fit %>%
+  select(all_of(env_vars_glm)) %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+qrtpcr_cor
+
+## Optional: inspect as a tidy table of pairwise correlations
+qrtpcr_cor_tidy <- as.data.frame(as.table(qrtpcr_cor)) %>%
+  rename(var1 = Var1, var2 = Var2, r = Freq) %>%
+  filter(var1 != var2) %>%
+  mutate(abs_r = abs(r)) %>%
+  arrange(desc(abs_r))
+
+qrtpcr_cor_tidy
+
+# cor filtered
+cor_filt <- qrtpcr_cor_tidy %>%
+  filter(abs_r < 0.7)
+cor_filt
+
+x_fit <- x %>%
+  mutate(EFRA = na_if(ORAS9B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9B)) %>%
+  mutate(DL417OC8 = na_if(WRKYB, NaN)) %>% 
+  filter(!is.na(WRKYB)) %>%
+  mutate(JAZ8B = na_if(ERF1A, NaN)) %>% 
+  filter(!is.na(ERF1A)) %>% 
+  mutate(P450 = na_if(DL417OC8, NaN)) %>% 
+  filter(!is.na(DL417OC8)) 
+
+## ----------------------------
+## PERMANOVA (adonis2)
+## Community matrix = ASV columns
+## Predictors = unscaled ddCq variables
+## ----------------------------
+adonis_fit <- adonis2(
+  x_fit[, asv_cols] ~ ORAS9B + WRKYB + ERF1A + DL417OC8,
+  data = x_fit,
+  by = "terms"
+)
+
+adonis_fit
+
+full_adonis_16S <- tidy(adonis_fit)
+full_adonis_16S
+
+write_delim(full_adonis_16S, "/Users/8qq/washington_transect/results/qrtpcr_permanova_16S_roots.csv", delim = ",")
+```
+
+# cca
+
+```{r}
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(ggrepel)
+library(forcats)
+library(grid)
+library(tibble)
+
+## ----------------------------
+## Variables
+## ----------------------------
+meta_cols <- 1:83
+asv_cols  <- 84:ncol(x)
+
+env_vars_cca <- c(
+  "DL417OC8", "EFRA", "EFRB", "ERF1A", "GSTU25", "HSR201",
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", "P450", "WRKYB"
+)
+
+site_levels <- c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4",
+                 "TR3.5", "TR3", "TR2.5", "TR2", "TR1")
+
+site_colors <- c("#2E86C1", "#3C80AD", "#4A7A9A", "#587487",
+                 "#666E73", "#746860", "#82624D", "#905C39",
+                 "#9E5626", "#AC5013", "#BA4A00")
+
+## ----------------------------
+## Clean data for CCA
+## - Convert NaN -> NA
+## - Keep complete cases for selected environmental variables
+## ----------------------------
+dat <- x %>%
+  mutate(across(all_of(env_vars_cca), ~ na_if(., NaN))) %>%
+  filter(if_all(all_of(env_vars_cca), ~ !is.na(.)))
+
+## Community matrix
+sp <- dat %>%
+  select(all_of(asv_cols))
+
+## Environmental matrix
+## Scale qRT-PCR variables (z-scores) for CCA only
+env <- dat %>%
+  select(all_of(env_vars_cca)) %>%
+  mutate(across(everything(), ~ as.numeric(scale(.)))) %>%
+  as.data.frame()
+
+## ----------------------------
+## Fit CCA
+## ----------------------------
+cca_fit <- cca(sp ~ ., data = env)
+
+summary(cca_fit)
+
+## Optional: check multicollinearity after fitting
+vif.cca(cca_fit)
+```
+
+# cca plot
+
+```{r}
+## ----------------------------
+## Extract scores for plotting
+## ----------------------------
+veg_1 <- as.data.frame(scores(cca_fit, display = "bp")) %>%
+  rownames_to_column("env")
+
+veg_5 <- as.data.frame(scores(cca_fit, display = "sites")) %>%
+  rownames_to_column("Row.names") %>%
+  bind_cols(
+    dat %>%
+      select(sample_id, site.x, climate.x) %>%
+      mutate(Row.names = rownames(dat))
+  ) %>%
+  select(sample_id, site.x, climate.x, CCA1, CCA2) %>%
+  mutate(site = factor(site.x, levels = site_levels)) %>%
+  arrange(site.x)
+
+## ----------------------------
+## Plot
+## ----------------------------
+cca_plot_16S_full <- ggplot() +
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) +
+  scale_color_manual(values = site_colors, breaks = site_levels, drop = FALSE) +
+  geom_segment(
+    data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))
+  ) +
+  geom_text_repel(
+    data = veg_1,
+    aes(x = CCA1, y = CCA2, label = env),
+    color = "black",
+    size = 3
+  ) +
+  theme_classic() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  xlab("CCA1") +
+  ylab("CCA2")
+
+cca_plot_16S_full
+
+ggsave(
+  "results/CCA_16S_qrtpcr_roots.png",
+  cca_plot_16S_full,
+  width = 6,
+  height = 4
+)
+
+```
+For 16S, only ORAS9B is significant in the PERMANOVA (less site variation in bacteria populations so the tree stress is less correlated )
+
+
+
+
+
+
+# trying ITS
+
+# Load files
+
+```{r}
+tab <- read.table("asv_tables/tab_rare_ITS.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_ITS.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_ITS.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_ITS"
+# format data (combine metadata and otutab)
+ttab <- t(tab)
+x <- merge(meta, ttab, by = "row.names")
+```
+
+# scale other variables (probably not putting them in the same ordination though)
+
+```{r}
+# transform to replace < with 0 in relevant variables
+x_clean <- x 
+
+# select numerical columns in metadata from the combined table x
+cols <- c(6:8, 12:20, 22:68) 
+# scale the metadata 
+x_scaled <- x_clean %>%
+  mutate(across(all_of(names(x_clean)[cols]), ~ as.numeric(scale(.x))))
+
+x <- x_scaled
+```
+
+# align with the qRT-PCR results
+
+```{r}
+# make x tree a character
+x <- x %>%
+  mutate(tree = as.character(tree))
+# combine results_wide with x by tree number
+comb <- results_wide %>%
+  right_join(x, by = "tree")
+# check dimensions
+dim(comb)
+dim(x)
+# genes from 4:15
+# asvs are 84:33000
+ncol(x)
+x <- comb
+```
+
+# trying to filter to roots only 
+
+```{r}
+roots <- x %>% 
+  filter(niche == "roots")
+dim(x)
+dim(roots)
+x <- roots
+```
+
+```{r}
+x_fit <- x %>%
+  mutate(DL417OC8 = na_if(DL417OC8, NaN)) %>%   # NaN -> NA
+  filter(!is.na(DL417OC8))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ DL417OC8, data = x_fit, by = "terms")
+lm1 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(EFRA = na_if(EFRA, NaN)) %>%   # NaN -> NA
+  filter(!is.na(EFRA))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ EFRA, data = x_fit, by = "terms")
+lm2 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(EFRB = na_if(EFRB, NaN)) %>%   # NaN -> NA
+  filter(!is.na(EFRB))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ EFRB, data = x_fit, by = "terms")
+lm3 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ERF1A = na_if(ERF1A, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ERF1A))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ERF1A, data = x_fit, by = "terms")
+lm4 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(GSTU25 = na_if(GSTU25, NaN)) %>%   # NaN -> NA
+  filter(!is.na(GSTU25))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ GSTU25, data = x_fit, by = "terms")
+lm5 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(HSR201 = na_if(HSR201, NaN)) %>%   # NaN -> NA
+  filter(!is.na(HSR201))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ HSR201, data = x_fit, by = "terms")
+lm6 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(JAZ6 = na_if(JAZ6, NaN)) %>%   # NaN -> NA
+  filter(!is.na(JAZ6))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ JAZ6, data = x_fit, by = "terms")
+lm7 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(JAZ8B = na_if(JAZ8B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(JAZ8B))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ JAZ8B, data = x_fit, by = "terms")
+lm8 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ORAS9A = na_if(ORAS9A, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9A))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ORAS9A, data = x_fit, by = "terms")
+lm9 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(ORAS9B = na_if(ORAS9B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9B))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ ORAS9B, data = x_fit, by = "terms")
+lm10 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(P450 = na_if(P450, NaN)) %>%   # NaN -> NA
+  filter(!is.na(P450))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ P450, data = x_fit, by = "terms")
+lm11 <- tidy(lm[1,])
+
+x_fit <- x %>%
+  mutate(WRKYB = na_if(WRKYB, NaN)) %>%   # NaN -> NA
+  filter(!is.na(WRKYB))
+lm <- adonis2(x_fit[, 84:ncol(x_fit)] ~ WRKYB, data = x_fit, by = "terms")
+lm12 <- tidy(lm[1,])
+
+# combine into 1 dataframe
+lm_full_table <- rbind(lm1, lm2, lm3, lm4, lm5, lm6, lm7, lm8, lm9, lm10, lm11, lm12)
+lm_full_table_ITS <- lm_full_table %>%
+  arrange(desc(R2))
+lm_full_table_ITS
+write_delim(lm_full_table_ITS, "/Users/8qq/washington_transect/results/qrtpcr_full_table_ITS_roots.csv", delim = ",")
+```
+
+# ok the ITS looks very interesting they are pretty much all significant. Hmmm. Aligns with the feast results. Root selection was significant for fungi but not for bacteria. More unknowns in high and dry roots than in wet roots.
+
+# So together this indicates that plant stress expression is impacting fungal community but not bacterial community?
+
+# interesting that the ITS roots are less significant than all the samples together (but still significant). The order of significance changed 
+
+
+
+# Testing correlations
+
+```{r}
+# set env_vars as qRT-PCR primers
+env_vars <- c(
+  "DL417OC8", "EFRA", "EFRB", "ERF1A", 
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", 
+  "WRKYB", "GSTU25", "HSR201", "P450"
+)
+
+pairwise_cor_tests <- combn(env_vars, 2, simplify = FALSE) %>%
+  purrr::map_dfr(\(vars) {
+    test <- cor.test(x_fit[[vars[1]]], x_fit[[vars[2]]], method = "pearson")
+    tibble(
+      var1 = vars[1],
+      var2 = vars[2],
+      r = unname(test$estimate),
+      p_value = test$p.value
+    )
+  }) %>%
+  mutate(abs_r = abs(r)) %>%
+  arrange(desc(abs_r))
+
+pairwise_cor_tests
+
+```
+
+highly correlated, no surprise there
+
+# permanova
+
+```{r}
+
+## ----------------------------
+## Variables
+## ----------------------------
+meta_cols <- 1:83
+asv_cols  <- 84:ncol(x)
+
+env_vars_glm <- c("DL417OC8", "EFRA", "EFRB", "ERF1A", 
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", 
+  "WRKYB", "GSTU25", "HSR201", "P450")
+
+## ----------------------------
+## Clean data for adonis2
+## - Convert NaN -> NA
+## - Keep only rows complete for the selected qRT-PCR variables
+## - Do NOT scale predictors here
+## ----------------------------
+x_fit <- x %>%
+  mutate(across(all_of(env_vars_glm), ~ na_if(., NaN))) %>%
+  filter(if_all(all_of(env_vars_glm), ~ !is.na(.)))
+
+## ----------------------------
+## Correlation check among qRT-PCR predictors
+## This helps decide whether some variables are too collinear
+## to include together in the same model
+## ----------------------------
+qrtpcr_cor <- x_fit %>%
+  select(all_of(env_vars_glm)) %>%
+  cor(use = "pairwise.complete.obs", method = "pearson")
+
+qrtpcr_cor
+
+## Optional: inspect as a tidy table of pairwise correlations
+qrtpcr_cor_tidy <- as.data.frame(as.table(qrtpcr_cor)) %>%
+  rename(var1 = Var1, var2 = Var2, r = Freq) %>%
+  filter(var1 != var2) %>%
+  mutate(abs_r = abs(r)) %>%
+  arrange(desc(abs_r))
+
+qrtpcr_cor_tidy
+
+# cor filtered
+cor_filt <- qrtpcr_cor_tidy %>%
+  filter(abs_r < 0.7)
+cor_filt
+
+x_fit <- x %>%
+  mutate(EFRA = na_if(ORAS9B, NaN)) %>%   # NaN -> NA
+  filter(!is.na(ORAS9B)) %>%
+  mutate(DL417OC8 = na_if(WRKYB, NaN)) %>% 
+  filter(!is.na(WRKYB)) %>%
+  mutate(JAZ8B = na_if(JAZ8B, NaN)) %>% 
+  filter(!is.na(JAZ8B)) %>% 
+  mutate(P450 = na_if(EFRA, NaN)) %>% 
+  filter(!is.na(EFRA)) %>%
+  filter(!is.na(HSR201)) 
+
+## ----------------------------
+## PERMANOVA (adonis2)
+## Community matrix = ASV columns
+## Predictors = unscaled ddCq variables
+## ----------------------------
+adonis_fit <- adonis2(
+  x_fit[, asv_cols] ~ ORAS9B + WRKYB + JAZ8B + EFRA,
+  data = x_fit,
+  by = "terms"
+)
+
+adonis_fit
+
+full_adonis_ITS <- tidy(adonis_fit)
+full_adonis_ITS
+
+write_delim(full_adonis_ITS, "/Users/8qq/washington_transect/results/qrtpcr_permanova_ITS.csv", delim = ",")
+```
+
+# cca
+
+```{r}
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(ggrepel)
+library(forcats)
+library(grid)
+library(tibble)
+
+## ----------------------------
+## Variables
+## ----------------------------
+meta_cols <- 1:83
+asv_cols  <- 84:ncol(x)
+
+env_vars_cca <- c(
+  "DL417OC8", "EFRA", "EFRB", "ERF1A", "GSTU25", "HSR201",
+  "JAZ6", "JAZ8B", "ORAS9A", "ORAS9B", "P450", "WRKYB"
+)
+
+site_levels <- c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4",
+                 "TR3.5", "TR3", "TR2.5", "TR2", "TR1")
+
+site_colors <- c("#2E86C1", "#3C80AD", "#4A7A9A", "#587487",
+                 "#666E73", "#746860", "#82624D", "#905C39",
+                 "#9E5626", "#AC5013", "#BA4A00")
+
+## ----------------------------
+## Clean data for CCA
+## - Convert NaN -> NA
+## - Keep complete cases for selected environmental variables
+## ----------------------------
+dat <- x %>%
+  mutate(across(all_of(env_vars_cca), ~ na_if(., NaN))) %>%
+  filter(if_all(all_of(env_vars_cca), ~ !is.na(.)))
+
+## Community matrix
+sp <- dat %>%
+  select(all_of(asv_cols))
+
+## Environmental matrix
+## Scale qRT-PCR variables (z-scores) for CCA only
+env <- dat %>%
+  select(all_of(env_vars_cca)) %>%
+  mutate(across(everything(), ~ as.numeric(scale(.)))) %>%
+  as.data.frame()
+
+## ----------------------------
+## Fit CCA
+## ----------------------------
+cca_fit <- cca(sp ~ ., data = env)
+
+summary(cca_fit)
+
+## Optional: check multicollinearity after fitting
+vif.cca(cca_fit)
+```
+
+# cca plot
+
+```{r}
+## ----------------------------
+## Extract scores for plotting
+## ----------------------------
+veg_1 <- as.data.frame(scores(cca_fit, display = "bp")) %>%
+  rownames_to_column("env")
+
+veg_5 <- as.data.frame(scores(cca_fit, display = "sites")) %>%
+  rownames_to_column("Row.names") %>%
+  bind_cols(
+    dat %>%
+      select(sample_id, site.x, climate.x) %>%
+      mutate(Row.names = rownames(dat))
+  ) %>%
+  select(sample_id, site.x, climate.x, CCA1, CCA2) %>%
+  mutate(site = factor(site.x, levels = site_levels)) %>%
+  arrange(site.x)
+
+## ----------------------------
+## Plot
+## ----------------------------
+cca_plot_ITS_full <- ggplot() +
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) +
+  scale_color_manual(values = site_colors, breaks = site_levels, drop = FALSE) +
+  geom_segment(
+    data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))
+  ) +
+  geom_text_repel(
+    data = veg_1,
+    aes(x = CCA1, y = CCA2, label = env),
+    color = "black",
+    size = 3
+  ) +
+  theme_classic() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  xlab("CCA1") +
+  ylab("CCA2")
+
+cca_plot_ITS_full
+
+ggsave(
+  "results/CCA_ITS_qrtpcr_roots.png",
+  cca_plot_ITS_full,
+  width = 6,
+  height = 4
+)
+
+```
+EFRB, GSTU25, pulling away from the most. JAZ6 seems to be the most signifcant of the remaining
+
+
+# Full PERMANOVA for continuous variables
+
+```{r}
+
+x_fit <- x %>%
+  mutate(EFRA = na_if(EFRA, NaN)) %>%   # NaN -> NA
+  filter(!is.na(EFRA)) %>%
+  mutate(DL417OC8 = na_if(DL417OC8, NaN)) %>% 
+  filter(!is.na(DL417OC8)) %>%
+  mutate(JAZ8B = na_if(JAZ8B, NaN)) %>% 
+  filter(!is.na(JAZ8B)) %>% 
+  mutate(P450 = na_if(P450, NaN)) %>% 
+  filter(!is.na(P450)) %>%
+  mutate(DL417OC8 = na_if(DL417OC8, NaN)) %>% 
+  filter(!is.na(DL417OC8)) %>%
+  mutate(EFRB = na_if(EFRB, NaN)) %>% 
+  filter(!is.na(EFRB)) %>%  
+  mutate(WRKYB = na_if(WRKYB, NaN)) %>% 
+  filter(!is.na(WRKYB)) %>% 
+  mutate(HSR201 = na_if(HSR201, NaN)) %>% 
+  filter(!is.na(HSR201))  
+
+# make the glm
+glm <- adonis2(x_fit[ ,84:ncol(x_fit)] ~ EFRA + JAZ8B + P450 + EFRB + DL417OC8 +
+                 WRKYB + HSR201,
+                          data = x_fit, by = "terms")
+glm
+full_glm_ITS <- tidy(glm)
+```
+
+# make the CCA
+
+```{r}
+library(dplyr)
+library(vegan)
+library(ggplot2)
+library(ggrepel)
+library(forcats)
+library(grid)
+
+meta_cols <- 1:83
+asv_cols  <- 84:ncol(x)
+
+env_vars <- c("EFRA", "JAZ8B", "P450", "DL417OC8")
+# just going to try all the primers together so that I can see what it looks like. I will probably have to take out some because a lot of the genes are highly correlated based on the bar graph alone
+env_vars <- c("DL417OC8", "EFRA", "EFRB", "ERF1A", "GSTU25", "HSR201", "JAZ6", "JAZ8B",
+              "ORAS9A", "ORAS9B", "P450", "WRKYB")
+
+site_levels <- c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4",
+                 "TR3.5", "TR3", "TR2.5", "TR2", "TR1")
+
+site_colors <- c("#2E86C1","#3C80AD","#4A7A9A","#587487",
+                 "#666E73","#746860","#82624D","#905C39",
+                 "#9E5626","#AC5013","#BA4A00")
+
+## 1) Filter rows (drop NA/NaN in env vars), then run CCA
+dat <- x %>%
+  mutate(across(all_of(env_vars), ~ ifelse(is.nan(.), NA, .))) %>%
+  filter(if_all(all_of(env_vars), ~ !is.na(.)))
+
+sp  <- dat %>% select(all_of(asv_cols))
+env <- dat %>% select(all_of(env_vars))
+
+cca_fit <- cca(sp ~ ., data = env)
+
+## 2) Build the same plotting objects as your original code: veg_1 (arrows) and veg_5 (points)
+veg_1 <- as.data.frame(scores(cca_fit, display = "bp")) %>%
+  tibble::rownames_to_column("env")
+
+veg_5 <- as.data.frame(scores(cca_fit, display = "sites")) %>%
+  tibble::rownames_to_column("Row.names") %>%
+  bind_cols(dat %>% select(sample_id, site.x, climate.x) %>% mutate(Row.names = rownames(dat))) %>%
+  select(sample_id, site.x, climate.x, CCA1, CCA2) %>%
+  mutate(site = factor(site.x, levels = site_levels)) %>%   # exact order
+  arrange(site.x)
+
+## 3) Plot with identical aesthetics
+cca_plot_ITS_full <- ggplot() +
+  geom_point(data = veg_5, aes(x = CCA1, y = CCA2, color = site)) +
+  scale_color_manual(values = site_colors, breaks = site_levels, drop = FALSE) +
+  geom_segment(
+    data = veg_1,
+    aes(x = 0, y = 0, xend = CCA1, yend = CCA2),
+    arrow = arrow(length = unit(0.1, "cm"))
+  ) +
+  geom_text_repel(
+    data = veg_1,
+    aes(x = CCA1, y = CCA2, label = env),
+    color = "black", size = 3
+  ) +
+  theme_classic() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5, linewidth = 0.3) +
+  xlab("CCA1") + ylab("CCA2")
+
+cca_plot_ITS_full
+
+ggsave("results/CCA_ITS_qrtpcr_all_samples.png", cca_plot_ITS_full, width = 6, height = 4)
+
+```
+
+# hesitant to trust this because it is standardized by the wet sites... I will think on it. 
+
+
+
+
+
+
+
+
+
+
+
+
+#### Other plots (not used, code graveyard) ####
+
+
+
+# cut poor rep primers
+
+```{r}
+plot_data <- plot_df %>%
+  filter(Primer != "ORAS9B") %>%
+  filter(Primer != "ERF1A") %>%
+  filter(Primer != "GSTU25")
+plot_data
+
+ggplot(plot_data, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+```
+
+
+# arrange from most to least entries
+
+```{r}
+plot_data <- plot_df %>%
+  group_by(Primer) %>%
+  mutate(n_obs = sum(is.finite(log2FC))) %>%   # counts only real numbers (not NA/NaN/Inf)
+  ungroup()
+
+primer_levels <- plot_data %>%
+  distinct(Primer, n_obs) %>%
+  arrange(desc(n_obs), Primer) %>%             # high n first, poor replication at the end
+  pull(Primer)
+
+plot_data <- plot_data %>%
+  mutate(Primer = factor(Primer, levels = primer_levels))
+
+ggplot(plot_data, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black")
+  )
+
+
+ggsave("qrtpcr_results/by_climate_mostrepstoleastreps.png", width = 8, height = 5)
+```
+
+
+
+
+```{r}
+
+
+
+plot_data <- plot_df %>%
+  group_by(Primer) %>%
+  mutate(n_obs = n(log2FC)) %>%
+  ungroup() %>%
+  mutate(Primer = reorder(Primer, n_obs))
+  
+ggplot(plot_data, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+
+ggsave("qrtpcr_results/by_climate.png", width = 8, height = 5)
+```
+
+
+# sanity check (raw Cqs)
+
+```{r}
+plot_data <- plot_df %>%
+  group_by(Primer) %>%
+  mutate(n_obs = sum(is.finite(log2FC))) %>%   # counts only real numbers (not NA/NaN/Inf)
+  ungroup()
+
+primer_levels <- plot_data %>%
+  distinct(Primer, n_obs) %>%
+  arrange(desc(n_obs), Primer) %>%             # high n first, poor replication at the end
+  pull(Primer)
+
+plot_data <- plot_data %>%
+  mutate(Primer = factor(Primer, levels = primer_levels))
+
+ggplot(plot_data, aes(x = climate, y = ddCq_ref_mean, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = "ddCq vs. wet") +
+ # coord_cartesian(ylim = (c(28,35))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black")
+  )
+
+ggsave("qrtpcr_results/by_climate_ddCq_vwet.png", width = 8, height = 5)
+```
+
+
+# other plots
+
+```{r}
+
+```
+
+
+```{r}
+ggplot(results, aes(x = climate, y = FC_ref_mean)) +
+  geom_hline(yintercept = 1, linetype = 2, colour = "grey50") +
+  geom_point(aes(colour = climate),
+             position = position_jitter(width = 0.12, height = 0),
+             alpha = 0.7, size = 2) +
+  stat_summary(fun = mean, geom = "point", size = 3, colour = "black") +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.15, colour = "black") +
+  scale_y_log10() +
+  facet_wrap(~ Primer) +
+  labs(x = NULL, y = "Fold change vs wet (log10 scale)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+```{r}
+results %>%
+  filter(climate %in% c("high","dry")) %>%
+  mutate(log2FC = log2(FC_ref_mean)) %>%
+  ggplot(aes(climate, log2FC, colour = climate)) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  geom_point(position = position_jitter(width = 0.12), alpha = 0.7) +
+  facet_wrap(~ Primer) +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+
+
+
+## running again by site with CR1 as the standard
+
+```{r}
+# 1) Collapse technical replicates (rows) to one row per sample_id x Primer
+#    using your already-computed "Average Cq" and "std dev".
+target_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    Cq_target = mean(`Average Cq`, na.rm = TRUE),
+    sd_target = mean(`std dev`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# If UBQ10B and 18S are constant within sample_id, pull one value per sample_id.
+refs_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_UBQ10B = mean(UBQ10B, na.rm = TRUE),
+    Cq_18S    = mean(`18S`,  na.rm = TRUE),
+    .groups = "drop"
+  )
+
+dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id","site","climate")) %>%
+  mutate(
+    dCq_UBQ10B = Cq_target - Cq_UBQ10B,
+    dCq_18S    = Cq_target - Cq_18S,
+    Cq_ref_mean = rowMeans(cbind(Cq_UBQ10B, Cq_18S), na.rm = TRUE),
+    dCq_ref_mean = Cq_target - Cq_ref_mean
+  )
+
+# 2) Compute the wet-climate calibrator per Primer (control mean ΔCq)
+calibrator <- dat %>%
+  filter(site == "CR1.5") %>%
+  group_by(Primer) %>%
+  summarise(
+    cal_dCq_UBQ10B   = mean(dCq_UBQ10B,   na.rm = TRUE),
+    cal_dCq_18S      = mean(dCq_18S,      na.rm = TRUE),
+    cal_dCq_ref_mean = mean(dCq_ref_mean, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 3) ΔΔCq and fold-change vs wet
+results <- dat %>%
+  left_join(calibrator, by = "Primer") %>%
+  mutate(
+    ddCq_UBQ10B   = dCq_UBQ10B   - cal_dCq_UBQ10B,
+    ddCq_18S      = dCq_18S      - cal_dCq_18S,
+    ddCq_ref_mean = dCq_ref_mean - cal_dCq_ref_mean,
+
+    FC_UBQ10B   = 2^(-ddCq_UBQ10B),
+    FC_18S      = 2^(-ddCq_18S),
+    FC_ref_mean = 2^(-ddCq_ref_mean)
+  )
+
+results %>% dplyr::select(sample_id, site, Primer, starts_with("dCq"), starts_with("ddCq"), starts_with("FC"))
+
+
+results %>%
+  filter(site %in% c("CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  group_by(Primer, site) %>%
+  summarise(
+    mean_log2FC = mean(log2(FC_ref_mean), na.rm = TRUE),
+    sd_log2FC   = sd(log2(FC_ref_mean), na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    mean_FC = 2^(mean_log2FC)
+  )
+
+```
+
+FC_ref_mean = 1 means it's the same as the wet treatment "control"
+> 1 means upregulated compared to "control"
+< 1 means downregulated compared to "control"
+
+```{r}
+plot_df <- results %>%
+  mutate(log2FC = log2(FC_ref_mean)) %>% # or: log2FC = -ddCq_ref_mean
+  mutate(site = fct_relevel(site, "CR1", "CR1.5", "CR2", "CR3", "CR4", "TR4", 
+                            "TR3.5", "TR3", "TR2.5", "TR2", "TR1")) %>%
+  arrange(site)
+  
+ggplot(plot_df, aes(x = site, y = log2FC, color = site)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1","#3C80AD","#4A7A9A","#587487", "#666E73",
+                              "#746860","#82624D","#905C39", "#9E5626","#AC5013","#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 10),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+
+ggsave("qrtpcr_results/by_siteCR1_5.png", width = 16, height = 5)
+```
+
+# using just UBQ10 as the reference gene
+
+```{r}
+library(dplyr)
+
+# 1) Collapse technical replicates to one row per sample_id x Primer
+target_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    Cq_target = mean(`Average Cq`, na.rm = TRUE),
+    sd_target = mean(`std dev`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2) Reference gene (UBQ10B only) per sample_id
+refs_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_UBQ10B = mean(UBQ10B, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id","site","climate")) %>%
+  mutate(
+    dCq = Cq_target - Cq_UBQ10B
+  )
+
+# 3) Wet-climate calibrator per Primer (control mean ΔCq)
+calibrator <- dat %>%
+  filter(climate == "wet") %>%
+  group_by(Primer) %>%
+  summarise(
+    cal_dCq = mean(dCq, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) ΔΔCq and fold-change vs wet (UBQ10B-normalized)
+results <- dat %>%
+  left_join(calibrator, by = "Primer") %>%
+  mutate(
+    ddCq = dCq - cal_dCq,
+    FC   = 2^(-ddCq),
+    log2FC = log2(FC)   # equals -ddCq
+  )
+
+results %>%
+  dplyr::select(sample_id, climate, Primer, Cq_target, Cq_UBQ10B, dCq, cal_dCq, ddCq, FC, log2FC)
+
+# Group summary (by climate) using UBQ10B-normalized fold change
+results %>%
+  filter(climate %in% c("wet","high","dry")) %>%
+  group_by(Primer, climate) %>%
+  summarise(
+    mean_log2FC = mean(log2FC, na.rm = TRUE),
+    sd_log2FC   = sd(log2FC, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  mutate(mean_FC = 2^(mean_log2FC))
+
+```
+
+
+```{r}
+plot_df <- results %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+  
+ggplot(plot_df, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+
+ggsave("qrtpcr_results/by_climate_justubq.png", width = 8, height = 5)
+```
+
+# using just 18S as the standard
+
+```{r}
+library(dplyr)
+
+# 1) Collapse technical replicates to one row per sample_id x Primer
+target_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate, Primer) %>%
+  summarise(
+    Cq_target = mean(`Average Cq`, na.rm = TRUE),
+    sd_target = mean(`std dev`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2) Reference gene (UBQ10B only) per sample_id
+refs_by_sample <- qpcr_clean %>%
+  group_by(sample_id, site, climate) %>%
+  summarise(
+    Cq_18S = mean(`18S`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+dat <- target_by_sample %>%
+  left_join(refs_by_sample, by = c("sample_id","site","climate")) %>%
+  mutate(
+    dCq = Cq_target - Cq_18S
+  )
+
+# 3) Wet-climate calibrator per Primer (control mean ΔCq)
+calibrator <- dat %>%
+  filter(climate == "wet") %>%
+  group_by(Primer) %>%
+  summarise(
+    cal_dCq = mean(dCq, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 4) ΔΔCq and fold-change vs wet (18S-normalized)
+results <- dat %>%
+  left_join(calibrator, by = "Primer") %>%
+  mutate(
+    ddCq = dCq - cal_dCq,
+    FC   = 2^(-ddCq),
+    log2FC = log2(FC)   # equals -ddCq
+  )
+
+results %>%
+  dplyr::select(sample_id, climate, Primer, Cq_target, Cq_18S, dCq, cal_dCq, ddCq, FC, log2FC)
+
+# Group summary (by climate) using 18S-normalized fold change
+results %>%
+  filter(climate %in% c("wet","high","dry")) %>%
+  group_by(Primer, climate) %>%
+  summarise(
+    mean_log2FC = mean(log2FC, na.rm = TRUE),
+    sd_log2FC   = sd(log2FC, na.rm = TRUE),
+    n = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  mutate(mean_FC = 2^(mean_log2FC))
+
+```
+
+# just 18S as the standard
+
+```{r}
+plot_df <- results %>%
+  mutate(climate = fct_relevel(climate, "wet", "high", "dry")) %>%
+  arrange(climate)
+  
+ggplot(plot_df, aes(x = climate, y = log2FC, color = climate)) +
+  geom_hline(yintercept = 0, linetype = 1, colour = "black") +
+#  geom_boxplot() + 
+  geom_jitter(position = position_dodge(width = .75), size = 1.5, alpha = .3) +
+  scale_color_manual(values=c("#2E86C1", "#746860", "#BA4A00")) +
+  stat_summary(fun = mean, geom = "bar", width = .5, alpha = 0) +
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.25, alpha = .8) +
+  facet_wrap(~ Primer, scales = "free_y") +
+  labs(x = NULL, y = expression(log[2]("fold change vs wet"))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.text = element_text(size = 14),
+    text = element_text(size = 16),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white"),
+    axis.line = element_line(colour = "black"))
+
+ggsave("qrtpcr_results/by_climate_just18S.png", width = 8, height = 5)
+```
+
+
