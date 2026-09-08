@@ -1,0 +1,479 @@
+---
+title: "alpha_diversity_2"
+author: "kathryn_bazany"
+date: "2026-09-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Load Packages
+
+```{r}
+library(tidyverse)
+library(vegan)
+library(car)
+library(agricolae)
+library(broom)
+library(knitr)
+library(ggpubr)
+library(flextable)
+library(officer)
+library(kableExtra)
+library(phyloseq)
+library(lme4)
+library(lmerTest) 
+```
+
+# Load files (starting with 16S)
+
+```{r}
+tab <- read.table("asv_tables/tab_rare_16S.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_16S.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_16S.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_16S"
+```
+
+# Calculate alpha diversity
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+head(tab)
+head(ttab)
+head(meta)
+head(tax)
+
+# extract sample ID
+meta_1 <- meta %>%
+  rownames_to_column(var = "sample_id")
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id")
+# combine meta and ttab
+meta_tab <- meta_1 %>%
+  inner_join(ttab_1)
+
+# calc shan
+shan <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "shannon")
+# combine
+alpha_df <- cbind(meta_tab, shan)
+
+# calc simpson
+simp <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
+# combine
+alpha_df <- cbind(alpha_df, simp)
+```
+
+
+# mixed effect model for alpha-diversity v. climate correlations with site as random factor 
+
+```{r}
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "All"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "All"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "All"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_16S <- rbind(lme_prcp, lme_temp, lme_alti)
+```
+
+# filter to compartments
+
+```{r}
+alpha_df
+soil_df <- alpha_df %>%
+  filter(niche == "soil")
+rhizo_df <- alpha_df %>%
+  filter(niche == "rhizo")
+root_df <- alpha_df %>%
+  filter(niche == "roots")
+```
+
+# compartments for 16S
+
+```{r}
+# bulk soil
+alpha_df <- soil_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_16S_soil <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_16S_soil
+```
+
+```{r}
+# rhizo soil
+alpha_df <- rhizo_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_16S_rhizo <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_16S_rhizo
+```
+
+```{r}
+# root
+alpha_df <- root_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "16S"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_16S_root <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_16S_root
+```
+
+Combine all 16S
+
+```{r}
+lme_16S_full <- rbind(lme_16S, lme_16S_soil, lme_16S_rhizo, lme_16S_root)
+lme_16S_full
+```
+
+
+##### ITS ######
+
+# Load files (ITS)
+
+```{r}
+tab <- read.table("asv_tables/tab_rare_ITS.txt", header = TRUE, sep = "\t")
+tax <- read.table("asv_tables/tax_rare_ITS.txt", header = TRUE, sep = "\t")
+meta <- read.table("asv_tables/meta_rare_ITS.txt", header = TRUE, sep = "\t")
+# set term
+term <- "_ITS"
+```
+
+# Calculate alpha diversity
+
+```{r}
+# tables
+ttab <- t(tab)
+ttab <- as.data.frame(ttab)
+head(tab)
+head(ttab)
+head(meta)
+head(tax)
+
+# extract sample ID
+meta_1 <- meta %>%
+  rownames_to_column(var = "sample_id")
+ttab_1 <- ttab %>%
+  rownames_to_column(var = "sample_id")
+# combine meta and ttab
+meta_tab <- meta_1 %>%
+  inner_join(ttab_1)
+
+# calc shan
+shan <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "shannon")
+# combine
+alpha_df <- cbind(meta_tab, shan)
+
+# calc simpson
+simp <- vegan::diversity((meta_tab[,ncol(meta_1):ncol(meta_tab)]), index = "simpson")
+# combine
+alpha_df <- cbind(alpha_df, simp)
+```
+
+
+# mixed effect model for alpha-diversity v. climate correlations with site as random factor 
+
+```{r}
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "All"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "All"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "All"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_ITS <- rbind(lme_prcp, lme_temp, lme_alti)
+```
+
+# filter to compartments
+
+```{r}
+alpha_df
+soil_df <- alpha_df %>%
+  filter(niche == "soil")
+rhizo_df <- alpha_df %>%
+  filter(niche == "rhizo")
+root_df <- alpha_df %>%
+  filter(niche == "roots")
+```
+
+# compartments for ITS
+
+```{r}
+# bulk soil
+alpha_df <- soil_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Bulk Soil"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_ITS_soil <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_ITS_soil
+```
+
+```{r}
+# rhizo soil
+alpha_df <- rhizo_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Rhizosphere Soil"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_ITS_rhizo <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_ITS_rhizo
+```
+
+```{r}
+# root
+alpha_df <- root_df
+# prcp
+lme <- lmer(shan ~ alpha_df$`decade_ave_prcp..mm.day.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_prcp <- results_df
+
+# temp
+lme <- lmer(shan ~ alpha_df$`decade_ave_tmax..deg.c.` + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_temp <- results_df
+
+# alti
+lme <- lmer(shan ~ alpha_df$altitude + (1 | site), data = alpha_df)
+summary(lme)
+results_df <- as.data.frame(coef(summary(lme)))
+results_df$variable <- rownames(results_df)
+results_df$amplicon <- "ITS"
+results_df$niche <- "Root Endosphere"
+print(results_df)
+lme_alti <- results_df
+
+# combine
+lme_ITS_root <- rbind(lme_prcp, lme_temp, lme_alti)
+lme_ITS_root
+```
+
+Combine all ITS
+
+```{r}
+lme_ITS_full <- rbind(lme_ITS, lme_ITS_soil, lme_ITS_rhizo, lme_ITS_root)
+lme_ITS_full
+```
+
+Combine all
+
+```{r}
+lme_full_table <- rbind(lme_16S_full, lme_ITS_full)
+lme_full_table
+
+lme_full_table_clean <- lme_full_table %>%
+  mutate(sig = ifelse(`Pr(>|t|)` < 0.001, "***",
+    ifelse(`Pr(>|t|)` < 0.01, "**",
+    ifelse(`Pr(>|t|)` < 0.05, "*",
+    ifelse(`Pr(>|t|)` < 0.1, ".", ""))))) %>%
+  mutate(variable = str_replace(variable, fixed("alpha_df$decade_ave_prcp..mm.day."), "Precipitation")) %>%
+  mutate(variable = str_replace(variable, fixed("alpha_df$altitude"), "Altitude")) %>%
+  mutate(variable = str_replace(variable, fixed("alpha_df$decade_ave_tmax..deg.c."), "Temperature")) 
+
+lme_full_table_clean
+write_delim(lme_full_table_clean, "lme_shannon_diversity_vs_climate.csv", delim = ",")
+```
+
