@@ -31,6 +31,7 @@ library(ggpubr)
 library(flextable)
 library(officer)
 library(kableExtra)
+library(phyloseq)
 ```
 
 # Load files (starting with 16S)
@@ -387,7 +388,7 @@ shan_site_box_16S
 # decade precipitation plot
 dec_prec_shan_16S <- ggplot(alpha_df_reor, aes(x = `decade_ave_prcp..mm.day.`, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Precipitation (mm)") + ylab("16S Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -405,7 +406,7 @@ dec_prec_shan_16S
 # decade max temp
 dec_tmax_shan_16S <- ggplot(alpha_df_reor, aes(x = `decade_ave_tmax..deg.c.`, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Average Max Temperature (C)") + ylab("16S Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -423,7 +424,7 @@ dec_tmax_shan_16S
 # elevation plot
 elev_shan_16S <- ggplot(alpha_df_reor, aes(x = altitude, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Elevation (m)") + ylab("16S Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -447,7 +448,7 @@ soil_alpha_df <- alpha_df_reor %>%
 # decade precipitation plot
 ph_shan_16S <- ggplot(soil_alpha_df, aes(x = `pH.2`, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("pH") + ylab("16S Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -829,7 +830,7 @@ shan_site_box_ITS
 # decade precipitation plot
 dec_prec_shan_ITS <- ggplot(alpha_df_reor, aes(x = `decade_ave_prcp..mm.day.`, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Precipitation (mm)") + ylab("ITS Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -847,7 +848,7 @@ dec_prec_shan_ITS
 # decade max temp
 dec_tmax_shan_ITS <- ggplot(alpha_df_reor, aes(x = `decade_ave_tmax..deg.c.`, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Average Max Temperature (C)") + ylab("ITS Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -865,7 +866,7 @@ dec_tmax_shan_ITS
 # elevation plot
 elev_shan_ITS <- ggplot(alpha_df_reor, aes(x = altitude, color = niche, 
                                  fill = niche, y = shan)) + 
-  geom_smooth(method = NULL, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
+  geom_smooth(method = lm, se = TRUE, fullrange = TRUE, alpha = .15) + geom_point() + 
   xlab("Elevation (m)") + ylab("ITS Shannon Diversity") + 
   scale_fill_manual(values = c("#a64551", "#a68a45", "#6ea645")) +  
   scale_color_manual(values = c("#a64551", "#a68a45", "#6ea645")) + 
@@ -920,7 +921,10 @@ full_plot <- ggarrange(dec_prec_shan_16S, dec_tmax_shan_16S, elev_shan_16S,
                        nrow = 2, ncol = 3, common.legend = TRUE, legend = "right")
 full_plot
 # save full plot
+ggsave("results/alpha_results/shannon_daymet_full.png", width = 11, height = 6)
 ggsave("shannon_daymet_full.png", width = 25, height = 10)
+# larger axis for poster
+# ggsave("shannon_daymet_full_poster.png", width = 14, height = 5.6)
 ```
 
 # Print tables
@@ -1085,7 +1089,7 @@ extract_metadata <- function(df_name) {
   return(c(method, sample, variable))
 }
 
-# Combine results into a single dataframe
+# Combine results into a single dataframe (whoopsie I want the estimate not the variable, estimate is the actual pearson correlation coefficient, the statistic is the chi-squared)
 combined_results <- bind_rows(
   lapply(names(data_frames), function(df_name) {
     df <- data_frames[[df_name]]  # Retrieve the actual data frame using its name
@@ -1096,7 +1100,7 @@ combined_results <- bind_rows(
       mutate(Method = metadata[1],
              Sample = metadata[2],
              Variable = metadata[3]) %>%
-      select(Method, Sample, Variable, statistic, p.value) # Adjust column names accordingly
+      select(Method, Sample, Variable, estimate, p.value) # Adjust column names accordingly
   })
 )
 
@@ -1104,36 +1108,36 @@ combined_results <- bind_rows(
 full_cor <- combined_results %>%
   rename(Amplicon = Method) %>%
   rename(Niche = Sample) %>%
-  rename(r = statistic) %>%
+  rename(Pearson = estimate) %>%
   rename(`p-val` = p.value) %>%
   mutate(`p-val` = formatC(`p-val`, format = "f", digits = 3)) %>%
-  mutate(r = formatC(r, format = "f", digits = 3)) %>%
+  mutate(Pearson = formatC(Pearson, format = "f", digits = 3)) %>%
   mutate(sig = ifelse(`p-val` < 0.001, "***",
     ifelse(`p-val` < 0.01, "**",
     ifelse(`p-val` < 0.05, "*",
     ifelse(`p-val` < 0.1, ".", ""))))) %>%
-  select(c(Variable, Amplicon, Niche, r, `p-val`, sig))
+  select(c(Variable, Amplicon, Niche, Pearson, `p-val`, sig))
 # Make wide format
 full_cor_wide <- full_cor %>%
-  pivot_wider(names_from = Niche, values_from = c(r, `p-val`, sig)) %>%
+  pivot_wider(names_from = Niche, values_from = c(Pearson, `p-val`, sig)) %>%
   select(Variable, Amplicon,
-    r_All, `p-val_All`, sig_All,  # First columns for 'All'
-    r_Soil, `p-val_Soil`, sig_Soil,  # then for 'Soil'
-    r_Rhizosphere, `p-val_Rhizosphere`, sig_Rhizosphere,  # for 'Rhizosphere'
-    r_Roots, `p-val_Roots`, sig_Roots) %>%
+    Pearson_All, `p-val_All`, sig_All,  # First columns for 'All'
+    Pearson_Soil, `p-val_Soil`, sig_Soil,  # then for 'Soil'
+    Pearson_Rhizosphere, `p-val_Rhizosphere`, sig_Rhizosphere,  # for 'Rhizosphere'
+    Pearson_Roots, `p-val_Roots`, sig_Roots) %>%
   rename(
-    All_r = r_All,
+    All_Pearson = Pearson_All,
     `All_p-val` = `p-val_All`,
-    All_sig = sig_All,
-    Soil_r = r_Soil,
+    `All_ ` = sig_All,
+    Soil_Pearson = Pearson_Soil,
     `Soil_p-val` = `p-val_Soil`,
-    Soil_sig = sig_Soil,
-    Rhizosphere_r = r_Rhizosphere,
+    `Soil_ ` = sig_Soil,
+    Rhizosphere_Pearson = Pearson_Rhizosphere,
     `Rhizosphere_p-val` = `p-val_Rhizosphere`,
-    Rhizosphere_sig = sig_Rhizosphere,
-    Roots_r = r_Roots,
+    `Rhizosphere_ ` = sig_Rhizosphere,
+    Roots_Pearson = Pearson_Roots,
     `Roots_p-val` = `p-val_Roots`,
-    Roots_sig = sig_Roots
+    `Roots_ ` = sig_Roots
   )
 
 # Building the table
